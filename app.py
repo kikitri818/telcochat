@@ -54,8 +54,19 @@ def search_tworld(query):
     return results
 
 def web_search(query):
-    # 실제 웹 검색 결과 대신 고정된 응답을 반환합니다
-    return [f"'{query}'에 대한 정보를 찾지 못했습니다."]
+    url = f"https://api.duckduckgo.com/?q={query}&format=json"
+    response = requests.get(url)
+    data = response.json()
+    
+    results = []
+    if data.get('Abstract'):
+        results.append(data['Abstract'])
+    if data.get('RelatedTopics'):
+        for topic in data['RelatedTopics'][:2]:  # 최대 2개의 관련 토픽 추가
+            if 'Text' in topic:
+                results.append(topic['Text'])
+    
+    return results
 
 def perform_search(query, df, sentence_transformer, translator):
     # 1. Fine-tuning 데이터 검색
@@ -73,10 +84,10 @@ def perform_search(query, df, sentence_transformer, translator):
     # 3. 일반 웹 검색
     web_results = web_search(query)
     if web_results:
-        response = "\n".join(web_results[:3])  # 최대 3개의 결과만 사용
+        response = "\n".join(web_results)
         return response, "웹 검색"
     
-    return "해당 질문에 대한 정보를 찾지 못했습니다.", "기본 응답"
+    return "죄송합니다. 해당 질문에 대한 정확한 답변을 찾지 못했습니다.", "기본 응답"
 
 def main():
     st.title("텔코 챗봇")
