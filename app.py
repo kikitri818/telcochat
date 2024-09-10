@@ -34,8 +34,21 @@ def retrieve_relevant_context(query, df, sentence_transformer):
 
 def generate_korean_response(context, query, tokenizer, model):
     input_text = f"질문: {query}\n컨텍스트: {context}\n답변:"
-    input_ids = tokenizer.encode(input_text, return_tensors="pt")
-    output = model.generate(input_ids, max_length=200, num_return_sequences=1, no_repeat_ngram_size=2)
+    input_ids = tokenizer.encode(input_text, return_tensors="pt", truncation=True, max_length=512)
+    
+    max_length = min(input_ids.shape[1] + 100, 1024)  # 입력 길이 + 100, 최대 1024
+    
+    output = model.generate(
+        input_ids, 
+        max_length=max_length, 
+        num_return_sequences=1, 
+        no_repeat_ngram_size=2,
+        pad_token_id=tokenizer.eos_token_id,
+        do_sample=True,
+        top_k=50,
+        top_p=0.95,
+        temperature=0.7
+    )
     response = tokenizer.decode(output[0], skip_special_tokens=True)
     return response.split("답변:")[-1].strip()
 
@@ -54,7 +67,7 @@ def main():
         relevant_context = retrieve_relevant_context(user_input, df, sentence_transformer)
         
         if not relevant_context.empty:
-            context = relevant_context.iloc[0]['instruction'] + " " + relevant_context.iloc[0]['response']
+            context = relevant_context.iloc[0]['instruction'][:100] + " " + relevant_context.iloc[0]['response'][:100]  # 컨텍스트 길이 제한
             response = generate_korean_response(context, user_input, tokenizer, model)
             source = "Fine-tuning 데이터"
         else:
