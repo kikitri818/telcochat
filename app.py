@@ -16,7 +16,7 @@ def load_sentence_transformer():
 
 @st.cache_resource
 def load_model_and_tokenizer():
-    model_name = "gpt2"  # 또는 fine-tuning된 모델 이름
+    model_name = "skt/kogpt2-base-v2"  # 한국어 GPT-2 모델
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForCausalLM.from_pretrained(model_name)
     return tokenizer, model
@@ -32,11 +32,20 @@ def retrieve_relevant_context(query, df, sentence_transformer):
     return df.nlargest(3, 'similarity')
 
 def generate_response(query, context, tokenizer, model):
-    input_text = f"Question: {query}\nContext: {context}\nAnswer:"
+    input_text = f"질문: {query}\n컨텍스트: {context}\n답변:"
     input_ids = tokenizer.encode(input_text, return_tensors="pt")
-    output = model.generate(input_ids, max_length=150, num_return_sequences=1, no_repeat_ngram_size=2)
+    
+    max_new_tokens = 150
+    
+    output = model.generate(
+        input_ids, 
+        max_new_tokens=max_new_tokens, 
+        num_return_sequences=1, 
+        no_repeat_ngram_size=2,
+        pad_token_id=tokenizer.eos_token_id
+    )
     response = tokenizer.decode(output[0], skip_special_tokens=True)
-    return response.split("Answer:")[-1].strip()
+    return response.split("답변:")[-1].strip()
 
 def perform_rag(query, df, sentence_transformer, tokenizer, model):
     relevant_context = retrieve_relevant_context(query, df, sentence_transformer)
