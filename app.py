@@ -5,7 +5,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-@st.cache_resource
+@st.cache_data
 def load_data():
     url = 'https://huggingface.co/datasets/bitext/Bitext-telco-llm-chatbot-training-dataset/resolve/main/bitext-telco-llm-chatbot-training-dataset.csv'
     df = pd.read_csv(url)
@@ -22,10 +22,9 @@ def load_model_and_tokenizer():
     model = AutoModelForCausalLM.from_pretrained(model_name)
     return tokenizer, model
 
-@st.cache_resource
-def precompute_embeddings(df, sentence_transformer):
-    df['embedding'] = df['instruction'].apply(lambda x: sentence_transformer.encode(x))
-    return df
+@st.cache_data
+def precompute_embeddings(_df, _sentence_transformer):
+    return _df.assign(embedding=_df['instruction'].apply(lambda x: _sentence_transformer.encode(x).tolist()))
 
 def retrieve_relevant_context(query, df, sentence_transformer):
     query_embedding = sentence_transformer.encode([query])
