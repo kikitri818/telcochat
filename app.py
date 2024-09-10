@@ -4,6 +4,7 @@ from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 from deep_translator import GoogleTranslator
+import re
 
 @st.cache_data
 def load_data():
@@ -29,18 +30,35 @@ def retrieve_relevant_context(query, df, sentence_transformer):
     return df.nlargest(3, 'similarity')
 
 def clean_response(response):
-    replacements = {
-        '{{WEBSITE_URL}}': '웹사이트',
-        '{{INVOICE_SECTION}}': '청구서 섹션',
-        '{{DISPUTE_INVOICE_OPTION}}': '청구서 분쟁 옵션',
-        '{{총 청구 금액}}': '총 청구 금액',
-        '{{고객 서비스}}': '고객 서비스',
-        '{{계정 세부 정보}}': '계정 세부 정보',
-        # 필요에 따라 다른 변환을 추가할 수 있습니다.
+    template_mapping = {
+        'WEBSITE_URL': '웹사이트',
+        'INVOICE_SECTION': '청구서 섹션',
+        'DISPUTE_INVOICE_OPTION': '청구서 분쟁 옵션',
+        'SUPPORT_TEAM_CONTACT': '고객 지원팀 연락처',
+        'DAYS_NUMBER': '일수',
+        'TOTAL_AMOUNT': '총 금액',
+        'ACCOUNT_SECTION': '계정 섹션',
+        'PAYMENT_METHOD': '결제 방법',
+        'CUSTOMER_SERVICE': '고객 서비스',
+        'ACCOUNT_DETAILS': '계정 세부 정보',
+        'BILL_AMOUNT': '청구 금액',
+        'DUE_DATE': '납부 기한',
+        'PAYMENT_OPTIONS': '결제 옵션',
+        'BILLING_CYCLE': '청구 주기',
+        'ACCOUNT_NUMBER': '계정 번호',
+        'SERVICE_PLAN': '서비스 플랜',
+        'DATA_USAGE': '데이터 사용량',
+        'CALL_MINUTES': '통화 시간',
+        'TEXT_MESSAGES': '문자 메시지 수',
+        'SUPPORT_HOURS': '고객 지원 시간',
+        'CONTACT_NUMBER': '연락처 번호'
     }
-    for placeholder, phrase in replacements.items():
-        response = response.replace(placeholder, phrase)
-    return response
+    
+    def replace_template(match):
+        key = match.group(1)
+        return template_mapping.get(key, f'{{{{{key}}}}}')
+    
+    return re.sub(r'\{\{(\w+)\}\}', replace_template, response)
 
 def generate_response(query, relevant_context, translator):
     if not relevant_context.empty and relevant_context.iloc[0]['similarity'] > 0.5:
