@@ -66,9 +66,7 @@ def clean_response(response):
         key = match.group(1)
         return template_mapping.get(key, '')
     
-    # 모든 템플릿 변수를 대체하거나 제거
     cleaned_response = re.sub(r'\{\{(\w+)\}\}', replace_template, response)
-    
     return cleaned_response.strip()
 
 def generate_response(query, relevant_context, translator):
