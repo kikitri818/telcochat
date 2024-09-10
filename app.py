@@ -2,12 +2,14 @@ import streamlit as st
 import pandas as pd
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 @st.cache_resource
 def load_data():
     url = 'https://huggingface.co/datasets/bitext/Bitext-telco-llm-chatbot-training-dataset/resolve/main/bitext-telco-llm-chatbot-training-dataset.csv'
-    return pd.read_csv(url)  # 전체 데이터셋 사용
+    df = pd.read_csv(url)
+    return df.sample(n=1000, random_state=42)  # 1000개 샘플만 사용
 
 @st.cache_resource
 def load_sentence_transformer():
@@ -20,10 +22,15 @@ def load_model_and_tokenizer():
     model = AutoModelForCausalLM.from_pretrained(model_name)
     return tokenizer, model
 
+@st.cache_resource
+def precompute_embeddings(df, sentence_transformer):
+    df['embedding'] = df['instruction'].apply(lambda x: sentence_transformer.encode(x))
+    return df
+
 def retrieve_relevant_context(query, df, sentence_transformer):
     query_embedding = sentence_transformer.encode([query])
-    df['embedding'] = df['instruction'].apply(lambda x: sentence_transformer.encode(x))
-    df['similarity'] = df['embedding'].apply(lambda x: cosine_similarity(query_embedding, x.reshape(1, -1))[0][0])
+    similarities = cosine_similarity(query_embedding, np.stack(df['embedding'].values))
+    df['similarity'] = similarities[0]
     return df.nlargest(3, 'similarity')
 
 def main():
@@ -32,6 +39,8 @@ def main():
     df = load_data()
     sentence_transformer = load_sentence_transformer()
     tokenizer, model = load_model_and_tokenizer()
+    
+    df = precompute_embeddings(df, sentence_transformer)
 
     user_input = st.text_input("질문을 입력하세요:")
 
