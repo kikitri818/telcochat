@@ -30,7 +30,6 @@ def retrieve_relevant_context(query, df, sentence_transformer):
     return df.nlargest(3, 'similarity')
 
 def clean_response(response):
-    # 일반적인 단어로 대체할 템플릿 변수들
     template_mapping = {
         'WEBSITE_URL': '웹사이트',
         'INVOICE_SECTION': '청구서 섹션',
@@ -73,12 +72,18 @@ def clean_response(response):
     # 연속된 공백을 하나의 공백으로 대체
     cleaned_response = re.sub(r'\s+', ' ', cleaned_response)
     
+    # 번호가 매겨진 단계 앞에 줄바꿈 추가
+    cleaned_response = re.sub(r'(\d+\.)', r'\n\1', cleaned_response)
+    
+    # 문단 구분을 위해 두 개의 연속된 문장 끝 사이에 빈 줄 추가
+    cleaned_response = re.sub(r'(\.\s)([A-Z가-힣])', r'\1\n\n\2', cleaned_response)
+    
     return cleaned_response.strip()
 
 def generate_response(query, relevant_context, translator):
     if not relevant_context.empty and relevant_context.iloc[0]['similarity'] > 0.5:
         responses = relevant_context['response'].apply(clean_response).tolist()
-        combined_response = ' '.join(responses)
+        combined_response = '\n\n'.join(responses)  # 각 응답 사이에 빈 줄 추가
         translated_response = translator.translate(combined_response)
         return translated_response, "RAG/Fine-tuning"
     else:
@@ -99,7 +104,7 @@ def main():
         response, source = generate_response(user_input, relevant_context, translator)
         
         st.write("챗봇 응답:")
-        st.write(response)
+        st.markdown(response)  # markdown을 사용하여 줄바꿈 유지
         st.write(f"위 답변은 {source}을 통해 생성되었습니다.")
 
 if __name__ == "__main__":
