@@ -5,11 +5,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 from deep_translator import GoogleTranslator
 import requests
-
-# Google Custom Search API 키와 검색 엔진 ID를 설정합니다.
-# 실제 사용 시에는 이 값들을 환경 변수로 관리하는 것이 좋습니다.
-GOOGLE_API_KEY = "YOUR_GOOGLE_API_KEY"
-GOOGLE_CSE_ID = "YOUR_GOOGLE_CSE_ID"
+from bs4 import BeautifulSoup
 
 @st.cache_data
 def load_data():
@@ -44,16 +40,30 @@ def translate_text(text, translator, source='en', target='ko'):
         return f"번역 중 오류가 발생했습니다. 원본 텍스트: {text}"
 
 def web_search(query):
-    url = f"https://www.googleapis.com/customsearch/v1?key={GOOGLE_API_KEY}&cx={GOOGLE_CSE_ID}&q={query}"
-    response = requests.get(url)
-    data = response.json()
+    url = f"https://www.google.com/search?q={query}"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    response = requests.get(url, headers=headers)
+    soup = BeautifulSoup(response.text, 'html.parser')
     
     results = []
-    if 'items' in data:
-        for item in data['items'][:3]:  # 상위 3개 결과만 사용
+    for g in soup.find_all('div', class_='g'):
+        anchors = g.find_all('a')
+        if anchors:
+            link = anchors[0]['href']
+            title = g.find('h3', class_='r')
+            item = {}
+            item['title'] = title.text if title else 'No title'
+            item['link'] = link
+            snippet = g.find('div', class_='s')
+            if snippet:
+                item['snippet'] = snippet.text
+            else:
+                item['snippet'] = 'No snippet'
             results.append(item['snippet'])
     
-    return results
+    return results[:3]  # 상위 3개 결과만 반환
 
 def perform_search(query, df, sentence_transformer, translator):
     # 1. Fine-tuning 데이터 검색
@@ -66,7 +76,7 @@ def perform_search(query, df, sentence_transformer, translator):
     web_results = web_search(query)
     if web_results:
         response = "\n".join(web_results)
-        return translate_text(response, translator), "웹 검색"
+        return response, "웹 검색"
     
     return "죄송합니다. 해당 질문에 대한 정확한 답변을 찾지 못했습니다. 다른 방식으로 질문을 해보시거나, 고객센터에 문의해 주세요.", "검색 결과 없음"
 
