@@ -3,19 +3,15 @@ import requests
 from bs4 import BeautifulSoup
 
 def web_search(query):
-    url = f"https://www.google.com/search?q={query}"
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
-    response = requests.get(url, headers=headers)
-    soup = BeautifulSoup(response.text, 'html.parser')
-    
+    url = f"https://api.duckduckgo.com/?q={query}&format=json"
+    response = requests.get(url)
+    data = response.json()
     results = []
-    for g in soup.find_all('div', class_='g'):
-        snippet = g.find('div', class_='IsZvec')
-        if snippet:
-            results.append(snippet.text)
-    
+    if data.get('Abstract'):
+        results.append(data['Abstract'])
+    for topic in data.get('RelatedTopics', []):
+        if isinstance(topic, dict) and 'Text' in topic:
+            results.append(topic['Text'])
     return results[:3]  # 최대 3개의 결과만 반환
 
 def generate_response(query, search_results):
@@ -24,7 +20,7 @@ def generate_response(query, search_results):
         for i, result in enumerate(search_results, 1):
             response += f"{i}. {result}\n\n"
         return response
-    return f"죄송합니다. '{query}'에 대한 정보를 찾지 못했습니다."
+    return f"죄송합니다. '{query}'에 대한 정보를 찾지 못했습니다. 다른 방식으로 질문을 해보시거나, 고객센터에 문의해 주세요."
 
 def main():
     st.title("텔코 챗봇")
