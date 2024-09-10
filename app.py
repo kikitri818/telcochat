@@ -5,7 +5,11 @@ from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 from deep_translator import GoogleTranslator
 import requests
-from bs4 import BeautifulSoup
+
+# Google Custom Search API 키와 검색 엔진 ID를 설정합니다.
+# 실제 사용 시에는 이 값들을 환경 변수로 관리하는 것이 좋습니다.
+GOOGLE_API_KEY = "YOUR_GOOGLE_API_KEY"
+GOOGLE_CSE_ID = "YOUR_GOOGLE_CSE_ID"
 
 @st.cache_data
 def load_data():
@@ -39,35 +43,15 @@ def translate_text(text, translator, source='en', target='ko'):
     except:
         return f"번역 중 오류가 발생했습니다. 원본 텍스트: {text}"
 
-def search_tworld(query):
-    url = "https://www.tworld.co.kr/web/home"
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
-    response = requests.get(url, headers=headers)
-    soup = BeautifulSoup(response.content, 'html.parser')
-    
-    results = []
-    keywords = query.lower().split()
-    for elem in soup.find_all(['p', 'li', 'h3', 'h4', 'div', 'span']):
-        text = elem.get_text().strip().lower()
-        if any(keyword in text for keyword in keywords):
-            results.append(elem.get_text().strip())
-    
-    return results[:3]  # 최대 3개의 결과만 반환
-
 def web_search(query):
-    url = f"https://api.duckduckgo.com/?q={query}&format=json"
+    url = f"https://www.googleapis.com/customsearch/v1?key={GOOGLE_API_KEY}&cx={GOOGLE_CSE_ID}&q={query}"
     response = requests.get(url)
     data = response.json()
     
     results = []
-    if data.get('Abstract'):
-        results.append(data['Abstract'])
-    if data.get('RelatedTopics'):
-        for topic in data['RelatedTopics'][:2]:
-            if 'Text' in topic:
-                results.append(topic['Text'])
+    if 'items' in data:
+        for item in data['items'][:3]:  # 상위 3개 결과만 사용
+            results.append(item['snippet'])
     
     return results
 
@@ -78,19 +62,13 @@ def perform_search(query, df, sentence_transformer, translator):
         response = relevant_context.iloc[0]['response']
         return translate_text(response, translator), "Fine-tuning 데이터"
     
-    # 2. T world 웹사이트 검색
-    tworld_results = search_tworld(query)
-    if tworld_results:
-        response = "\n".join(tworld_results)
-        return response, "T world 웹사이트"
-    
-    # 3. 일반 웹 검색
+    # 2. 웹 검색
     web_results = web_search(query)
     if web_results:
         response = "\n".join(web_results)
         return translate_text(response, translator), "웹 검색"
     
-    return "죄송합니다. 해당 질문에 대한 정확한 답변을 찾지 못했습니다.", "검색 결과 없음"
+    return "죄송합니다. 해당 질문에 대한 정확한 답변을 찾지 못했습니다. 다른 방식으로 질문을 해보시거나, 고객센터에 문의해 주세요.", "검색 결과 없음"
 
 def main():
     st.title("텔코 챗봇")
