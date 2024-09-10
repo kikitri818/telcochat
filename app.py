@@ -4,6 +4,8 @@ from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 from deep_translator import GoogleTranslator
+import requests
+from bs4 import BeautifulSoup
 
 @st.cache_data
 def load_data():
@@ -37,6 +39,41 @@ def translate_text(text, translator, source='en', target='ko'):
     except:
         return f"번역 중 오류가 발생했습니다. 원본 텍스트: {text}"
 
+def search_tworld(query):
+    url = "https://www.tworld.co.kr/web/home"
+    response = requests.get(url)
+    soup = BeautifulSoup(response.content, 'html.parser')
+    
+    # 여기에 T world 웹사이트 검색 로직을 구현합니다.
+    # 예를 들어, 특정 키워드가 포함된 텍스트를 찾을 수 있습니다.
+    relevant_texts = soup.find_all(text=lambda text: query.lower() in text.lower())
+    
+    return [text.strip() for text in relevant_texts]
+
+def web_search(query):
+    # 여기에 일반 웹 검색 로직을 구현합니다.
+    # 예시로 간단한 더미 데이터를 반환합니다.
+    return [f"웹 검색 결과: {query}에 대한 정보"]
+
+def perform_search(query, df, sentence_transformer, translator):
+    # 1. Fine-tuning 데이터 검색
+    relevant_context = retrieve_relevant_context(query, df, sentence_transformer)
+    if not relevant_context.empty:
+        response = relevant_context.iloc[0]['response']
+        return translate_text(response, translator), "Fine-tuning 데이터"
+    
+    # 2. T world 웹사이트 검색
+    tworld_results = search_tworld(query)
+    if tworld_results:
+        return "\n".join(tworld_results), "T world 웹사이트"
+    
+    # 3. 일반 웹 검색
+    web_results = web_search(query)
+    if web_results:
+        return "\n".join(web_results), "웹 검색"
+    
+    return "죄송합니다. 해당 질문에 대한 정확한 답변을 찾지 못했습니다.", "기본 응답"
+
 def main():
     st.title("텔코 챗봇")
 
@@ -49,21 +86,10 @@ def main():
     user_input = st.text_input("질문을 입력하세요:")
 
     if user_input:
-        # 사용자 입력을 영어로 번역
-        translated_input = translate_text(user_input, translator, source='ko', target='en')
+        response, source = perform_search(user_input, df, sentence_transformer, translator)
         
-        relevant_context = retrieve_relevant_context(translated_input, df, sentence_transformer)
-        
-        if not relevant_context.empty:
-            response = relevant_context.iloc[0]['response']
-            translated_response = translate_text(response, translator, source='en', target='ko')
-            source = "Fine-tuning 데이터"
-        else:
-            translated_response = "죄송합니다. 해당 질문에 대한 정확한 답변을 찾지 못했습니다."
-            source = "기본 응답"
-
         st.write("챗봇 응답:")
-        st.write(translated_response)
+        st.write(response)
         st.write(f"위 답변은 {source}를 참고했습니다.")
 
 if __name__ == "__main__":
