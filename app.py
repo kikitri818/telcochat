@@ -75,12 +75,13 @@ def web_search(query):
     response = requests.get(url)
     data = response.json()
     
+    results = []
     if data['Abstract']:
-        return data['Abstract']
-    elif data['RelatedTopics']:
-        return data['RelatedTopics'][0]['Text']
-    else:
-        return ""
+        results.append(data['Abstract'])
+    for topic in data['RelatedTopics']:
+        if isinstance(topic, dict) and 'Text' in topic:
+            results.append(topic['Text'])
+    return results[:3]  # 최대 3개의 결과만 반환
 
 def generate_response(query, relevant_context, translator):
     if not relevant_context.empty and relevant_context.iloc[0]['similarity'] > 0.5:
@@ -89,10 +90,11 @@ def generate_response(query, relevant_context, translator):
         translated_response = translator.translate(combined_response)
         return translated_response, "RAG/Fine-tuning"
     else:
-        web_result = web_search(query)
-        if web_result:
-            translated_web_result = translator.translate(web_result)
-            return translated_web_result, "웹 검색"
+        web_results = web_search(query)
+        if web_results:
+            translated_web_results = [translator.translate(result) for result in web_results]
+            combined_response = "\n\n".join(translated_web_results)
+            return combined_response, "웹 검색"
         else:
             return "죄송합니다. 해당 질문에 대한 정확한 답변을 찾지 못했습니다.", "검색 결과 없음"
 
