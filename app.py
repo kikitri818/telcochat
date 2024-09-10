@@ -30,12 +30,13 @@ def retrieve_relevant_context(query, df, sentence_transformer):
     return df.nlargest(3, 'similarity')
 
 def clean_response(response):
+    # 일반적인 단어로 대체할 템플릿 변수들
     template_mapping = {
         'WEBSITE_URL': '웹사이트',
         'INVOICE_SECTION': '청구서 섹션',
         'DISPUTE_INVOICE_OPTION': '청구서 분쟁 옵션',
         'SUPPORT_TEAM_CONTACT': '고객 지원팀 연락처',
-        'DAYS_NUMBER': '일수',
+        'DAYS_NUMBER': '며칠',
         'TOTAL_AMOUNT': '총 금액',
         'ACCOUNT_SECTION': '계정 섹션',
         'PAYMENT_METHOD': '결제 방법',
@@ -51,14 +52,28 @@ def clean_response(response):
         'CALL_MINUTES': '통화 시간',
         'TEXT_MESSAGES': '문자 메시지 수',
         'SUPPORT_HOURS': '고객 지원 시간',
-        'CONTACT_NUMBER': '연락처 번호'
+        'CONTACT_NUMBER': '연락처 번호',
+        'ACTIVATION_SECTION': '활성화 섹션',
+        'PRODUCT_NAME': '제품명',
+        'SUBSCRIPTION_DETAILS': '구독 정보',
+        'PACKAGE_NAME': '패키지명',
+        'CANCELLATION_POLICY': '해지 정책',
+        'REFUND_POLICY': '환불 정책',
+        'TERMS_AND_CONDITIONS': '이용 약관',
+        'PRIVACY_POLICY': '개인정보 처리방침'
     }
     
     def replace_template(match):
         key = match.group(1)
-        return template_mapping.get(key, f'{{{{{key}}}}}')
+        return template_mapping.get(key, '')
     
-    return re.sub(r'\{\{(\w+)\}\}', replace_template, response)
+    # 모든 템플릿 변수를 대체하거나 제거
+    cleaned_response = re.sub(r'\{\{(\w+)\}\}', replace_template, response)
+    
+    # 연속된 공백을 하나의 공백으로 대체
+    cleaned_response = re.sub(r'\s+', ' ', cleaned_response)
+    
+    return cleaned_response.strip()
 
 def generate_response(query, relevant_context, translator):
     if not relevant_context.empty and relevant_context.iloc[0]['similarity'] > 0.5:
