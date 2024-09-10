@@ -40,7 +40,7 @@ def translate_text(text, translator, source='en', target='ko'):
         return f"번역 중 오류가 발생했습니다. 원본 텍스트: {text}"
 
 def search_tworld(query):
-    url = "https://www.tworld.co.kr/normal.do?serviceId=S_PROD2001&viewId=V_PROD2001&prod_id=NA00007395"
+    url = "https://www.tworld.co.kr/web/home"
     response = requests.get(url)
     soup = BeautifulSoup(response.content, 'html.parser')
     
@@ -51,7 +51,7 @@ def search_tworld(query):
         if any(keyword in text for keyword in keywords):
             results.append(elem.text.strip())
     
-    return results
+    return results[:3]  # 최대 3개의 결과만 반환
 
 def web_search(query):
     url = f"https://api.duckduckgo.com/?q={query}&format=json"
@@ -78,16 +78,16 @@ def perform_search(query, df, sentence_transformer, translator):
     # 2. T world 웹사이트 검색
     tworld_results = search_tworld(query)
     if tworld_results:
-        response = "\n".join(tworld_results[:3])  # 최대 3개의 결과만 사용
+        response = "\n".join(tworld_results)
         return response, "T world 웹사이트"
     
     # 3. 일반 웹 검색
     web_results = web_search(query)
     if web_results:
         response = "\n".join(web_results)
-        return response, "웹 검색"
+        return translate_text(response, translator), "웹 검색"
     
-    return "죄송합니다. 해당 질문에 대한 정확한 답변을 찾지 못했습니다.", "기본 응답"
+    return "죄송합니다. 해당 질문에 대한 정확한 답변을 찾지 못했습니다.", "검색 결과 없음"
 
 def main():
     st.title("텔코 챗봇")
