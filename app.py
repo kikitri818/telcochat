@@ -1,39 +1,45 @@
 import streamlit as st
 import requests
-import logging
-
-logging.basicConfig(level=logging.INFO)
+from bs4 import BeautifulSoup
 
 def web_search(query):
-    try:
-        url = f"https://api.duckduckgo.com/?q={query}&format=json"
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        
-        results = []
-        if data.get('Abstract'):
-            results.append(data['Abstract'])
-        if data.get('RelatedTopics'):
-            for topic in data['RelatedTopics'][:2]:
-                if isinstance(topic, dict) and 'Text' in topic:
-                    results.append(topic['Text'])
-        
-        if not results:
-            results.append(f"'{query}'에 대한 검색 결과를 찾을 수 없습니다.")
-        
-        logging.info(f"Web search results: {results}")
-        return results
-    except Exception as e:
-        logging.error(f"Web search error: {str(e)}")
-        return [f"검색 중 오류가 발생했습니다: {str(e)}"]
+    url = f"https://api.duckduckgo.com/?q={query}&format=json"
+    response = requests.get(url)
+    data = response.json()
+    results = []
+    if 'Abstract' in data and data['Abstract']:
+        results.append(data['Abstract'])
+    if 'RelatedTopics' in data:
+        for topic in data['RelatedTopics'][:2]:  # 최대 2개의 관련 토픽 추가
+            if 'Text' in topic:
+                results.append(topic['Text'])
+    return results if results else [f"'{query}'에 대한 정보를 찾지 못했습니다."]
+
+def search_tworld(query):
+    url = 'https://www.tworld.co.kr/web/home'
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+    response = requests.get(url, headers=headers)
+    soup = BeautifulSoup(response.content, 'html.parser')
+    results = []
+    keywords = query.lower().split()
+    for elem in soup.find_all(['p', 'li', 'h3', 'h4', 'div', 'span']):
+        text = elem.get_text().strip().lower()
+        if any(keyword in text for keyword in keywords):
+            results.append(elem.get_text().strip())
+    return results[:3]  # 최대 3개의 결과만 반환
 
 def perform_search(query):
-    logging.info(f"Received query: {query}")
-    results = web_search(query)
-    response = "\n\n".join(results)
-    logging.info(f"Final response: {response}")
-    return response, "웹 검색"
+    # 1. T world 웹사이트 검색
+    tworld_results = search_tworld(query)
+    if tworld_results:
+        return "\n".join(tworld_results), "T world 웹사이트"
+    
+    # 2. 일반 웹 검색
+    web_results = web_search(query)
+    if web_results:
+        return "\n".join(web_results), "웹 검색"
+    
+    return "죄송합니다. 해당 질문에 대한 정확한 답변을 찾지 못했습니다.", "검색 결과 없음"
 
 def main():
     st.title("텔코 챗봇")
@@ -41,7 +47,6 @@ def main():
     user_input = st.text_input("질문을 입력하세요:")
 
     if user_input:
-        logging.info(f"User input: {user_input}")
         response, source = perform_search(user_input)
         
         st.write("챗봇 응답:")
