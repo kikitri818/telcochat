@@ -40,15 +40,16 @@ def translate_text(text, translator, source='en', target='ko'):
         return f"번역 중 오류가 발생했습니다. 원본 텍스트: {text}"
 
 def search_tworld(query):
-    url = "https://www.tworld.co.kr/web/home"
+    url = "https://www.tworld.co.kr/normal.do?serviceId=S_PROD2001&viewId=V_PROD2001&prod_id=NA00007395"
     response = requests.get(url)
     soup = BeautifulSoup(response.content, 'html.parser')
     
-    # 여기에 T world 웹사이트 검색 로직을 구현합니다.
-    # 예를 들어, 특정 키워드가 포함된 텍스트를 찾을 수 있습니다.
-    relevant_texts = soup.find_all(text=lambda text: query.lower() in text.lower())
+    results = []
+    for elem in soup.find_all(['p', 'li', 'h3', 'h4']):
+        if query.lower() in elem.text.lower():
+            results.append(elem.text.strip())
     
-    return [text.strip() for text in relevant_texts]
+    return results
 
 def web_search(query):
     # 여기에 일반 웹 검색 로직을 구현합니다.
@@ -58,7 +59,7 @@ def web_search(query):
 def perform_search(query, df, sentence_transformer, translator):
     # 1. Fine-tuning 데이터 검색
     relevant_context = retrieve_relevant_context(query, df, sentence_transformer)
-    if not relevant_context.empty:
+    if not relevant_context.empty and relevant_context.iloc[0]['similarity'] > 0.7:  # 유사도 임계값 설정
         response = relevant_context.iloc[0]['response']
         return translate_text(response, translator), "Fine-tuning 데이터"
     
