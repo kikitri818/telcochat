@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
+from sentence_transformers import SentenceTransformer
 from deep_translator import GoogleTranslator
 import re
 
@@ -13,7 +13,7 @@ def load_data():
 
 @st.cache_resource
 def load_sentence_transformer():
-    return SentenceTransformer('sentence-transformers/distiluse-base-multilingual-cased-v2')
+    return SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
 @st.cache_resource
 def load_translator():
