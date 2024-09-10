@@ -40,7 +40,7 @@ def translate_text(text, translator, source='en', target='ko'):
         return f"번역 중 오류가 발생했습니다. 원본 텍스트: {text}"
 
 def web_search(query):
-    url = f"https://www.google.com/search?q={query}"
+    url = f"https://html.duckduckgo.com/html/?q={query}"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     }
@@ -48,22 +48,14 @@ def web_search(query):
     soup = BeautifulSoup(response.text, 'html.parser')
     
     results = []
-    for g in soup.find_all('div', class_='g'):
-        anchors = g.find_all('a')
-        if anchors:
-            link = anchors[0]['href']
-            title = g.find('h3', class_='r')
-            item = {}
-            item['title'] = title.text if title else 'No title'
-            item['link'] = link
-            snippet = g.find('div', class_='s')
-            if snippet:
-                item['snippet'] = snippet.text
-            else:
-                item['snippet'] = 'No snippet'
-            results.append(item['snippet'])
+    for result in soup.find_all('div', class_='result__body'):
+        snippet = result.find('a', class_='result__snippet')
+        if snippet:
+            results.append(snippet.text.strip())
+        if len(results) == 3:
+            break
     
-    return results[:3]  # 상위 3개 결과만 반환
+    return results
 
 def perform_search(query, df, sentence_transformer, translator):
     # 1. Fine-tuning 데이터 검색
