@@ -12,22 +12,19 @@ def web_search(query):
     
     results = []
     for g in soup.find_all('div', class_='g'):
-        anchors = g.find_all('a')
-        if anchors:
-            link = anchors[0]['href']
-            title = g.find('h3', class_='r')
-            snippet = g.find('div', class_='s')
-            if title and snippet:
-                results.append(f"{title.text}\n{snippet.text}")
+        snippet = g.find('div', class_='IsZvec')
+        if snippet:
+            results.append(snippet.text)
     
-    return results[:3] if results else [f"'{query}'에 대한 정보를 찾지 못했습니다."]
+    return results[:3]  # 최대 3개의 결과만 반환
 
-def perform_search(query):
-    results = web_search(query)
-    if results:
-        response = "\n\n".join(results)
-        return response, "웹 검색"
-    return f"'{query}'에 대한 정보를 찾지 못했습니다.", "검색 결과 없음"
+def generate_response(query, search_results):
+    if search_results:
+        response = f"'{query}'에 대한 검색 결과입니다:\n\n"
+        for i, result in enumerate(search_results, 1):
+            response += f"{i}. {result}\n\n"
+        return response
+    return f"죄송합니다. '{query}'에 대한 정보를 찾지 못했습니다."
 
 def main():
     st.title("텔코 챗봇")
@@ -35,11 +32,12 @@ def main():
     user_input = st.text_input("질문을 입력하세요:")
 
     if user_input:
-        response, source = perform_search(user_input)
+        search_results = web_search(user_input)
+        response = generate_response(user_input, search_results)
         
         st.write("챗봇 응답:")
         st.write(response)
-        st.write(f"위 답변은 {source}를 참고했습니다.")
+        st.write("위 답변은 웹 검색을 참고했습니다.")
 
 if __name__ == "__main__":
     main()
