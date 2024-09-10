@@ -71,14 +71,17 @@ def clean_response(response):
     return cleaned_response.strip()
 
 def web_search(query):
-    url = f"https://api.duckduckgo.com/?q={query}&format=json"
-    response = requests.get(url)
+    url = f"https://api.duckduckgo.com/?q={query}&format=json&kl=kr-kr&t=telco_chatbot"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    response = requests.get(url, headers=headers)
     data = response.json()
     
     results = []
-    if data['Abstract']:
+    if data.get('Abstract'):
         results.append(data['Abstract'])
-    for topic in data['RelatedTopics']:
+    for topic in data.get('RelatedTopics', []):
         if isinstance(topic, dict) and 'Text' in topic:
             results.append(topic['Text'])
     return results[:3]  # 최대 3개의 결과만 반환
