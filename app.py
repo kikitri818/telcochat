@@ -29,9 +29,18 @@ def retrieve_relevant_context(query, df, sentence_transformer):
     return df.nlargest(3, 'similarity')
 
 def clean_response(response):
-    # 템플릿 변수 제거
-    import re
-    return re.sub(r'\{\{.*?\}\}', '', response)
+    replacements = {
+        '{{WEBSITE_URL}}': '웹사이트',
+        '{{INVOICE_SECTION}}': '청구서 섹션',
+        '{{DISPUTE_INVOICE_OPTION}}': '청구서 분쟁 옵션',
+        '{{총 청구 금액}}': '총 청구 금액',
+        '{{고객 서비스}}': '고객 서비스',
+        '{{계정 세부 정보}}': '계정 세부 정보',
+        # 필요에 따라 다른 변환을 추가할 수 있습니다.
+    }
+    for placeholder, phrase in replacements.items():
+        response = response.replace(placeholder, phrase)
+    return response
 
 def generate_response(query, relevant_context, translator):
     if not relevant_context.empty and relevant_context.iloc[0]['similarity'] > 0.5:
