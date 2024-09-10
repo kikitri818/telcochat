@@ -3,7 +3,7 @@ import pandas as pd
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
-from googletrans import Translator
+from deep_translator import GoogleTranslator
 
 @st.cache_data
 def load_data():
@@ -17,7 +17,7 @@ def load_sentence_transformer():
 
 @st.cache_resource
 def load_translator():
-    return Translator()
+    return GoogleTranslator(source='auto', target='ko')
 
 @st.cache_data
 def precompute_embeddings(_df, _sentence_transformer):
@@ -29,12 +29,13 @@ def retrieve_relevant_context(query, df, sentence_transformer):
     df['similarity'] = similarities[0]
     return df.nlargest(3, 'similarity')
 
-def translate_response(response, translator):
+def translate_text(text, translator, source='en', target='ko'):
     try:
-        translated = translator.translate(response, src='en', dest='ko')
-        return translated.text
+        translator.source = source
+        translator.target = target
+        return translator.translate(text)
     except:
-        return "번역 중 오류가 발생했습니다. 원본 응답: " + response
+        return f"번역 중 오류가 발생했습니다. 원본 텍스트: {text}"
 
 def main():
     st.title("텔코 챗봇")
@@ -49,13 +50,13 @@ def main():
 
     if user_input:
         # 사용자 입력을 영어로 번역
-        translated_input = translator.translate(user_input, src='ko', dest='en').text
+        translated_input = translate_text(user_input, translator, source='ko', target='en')
         
         relevant_context = retrieve_relevant_context(translated_input, df, sentence_transformer)
         
         if not relevant_context.empty:
             response = relevant_context.iloc[0]['response']
-            translated_response = translate_response(response, translator)
+            translated_response = translate_text(response, translator, source='en', target='ko')
             source = "Fine-tuning 데이터"
         else:
             translated_response = "죄송합니다. 해당 질문에 대한 정확한 답변을 찾지 못했습니다."
