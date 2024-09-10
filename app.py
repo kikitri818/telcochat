@@ -32,6 +32,13 @@ def retrieve_relevant_context(query, df, sentence_transformer):
     df['similarity'] = similarities[0]
     return df.nlargest(3, 'similarity')
 
+def generate_korean_response(context, query, tokenizer, model):
+    input_text = f"질문: {query}\n컨텍스트: {context}\n답변:"
+    input_ids = tokenizer.encode(input_text, return_tensors="pt")
+    output = model.generate(input_ids, max_length=200, num_return_sequences=1, no_repeat_ngram_size=2)
+    response = tokenizer.decode(output[0], skip_special_tokens=True)
+    return response.split("답변:")[-1].strip()
+
 def main():
     st.title("텔코 챗봇")
 
@@ -47,7 +54,8 @@ def main():
         relevant_context = retrieve_relevant_context(user_input, df, sentence_transformer)
         
         if not relevant_context.empty:
-            response = relevant_context.iloc[0]['response']
+            context = relevant_context.iloc[0]['instruction'] + " " + relevant_context.iloc[0]['response']
+            response = generate_korean_response(context, user_input, tokenizer, model)
             source = "Fine-tuning 데이터"
         else:
             response = "죄송합니다. 해당 질문에 대한 정확한 답변을 찾지 못했습니다."
