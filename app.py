@@ -5,6 +5,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 from deep_translator import GoogleTranslator
 import re
+import requests
 
 @st.cache_data
 def load_data():
@@ -66,10 +67,20 @@ def clean_response(response):
         key = match.group(1)
         return template_mapping.get(key, '')
     
-    # 모든 템플릿 변수를 대체하거나 제거
     cleaned_response = re.sub(r'\{\{(\w+)\}\}', replace_template, response)
-    
     return cleaned_response.strip()
+
+def web_search(query):
+    url = f"https://api.duckduckgo.com/?q={query}&format=json"
+    response = requests.get(url)
+    data = response.json()
+    
+    if data['Abstract']:
+        return data['Abstract']
+    elif data['RelatedTopics']:
+        return data['RelatedTopics'][0]['Text']
+    else:
+        return ""
 
 def generate_response(query, relevant_context, translator):
     if not relevant_context.empty and relevant_context.iloc[0]['similarity'] > 0.5:
@@ -78,7 +89,12 @@ def generate_response(query, relevant_context, translator):
         translated_response = translator.translate(combined_response)
         return translated_response, "RAG/Fine-tuning"
     else:
-        return "죄송합니다. 해당 질문에 대한 정확한 답변을 찾지 못했습니다.", "검색 결과 없음"
+        web_result = web_search(query)
+        if web_result:
+            translated_web_result = translator.translate(web_result)
+            return translated_web_result, "웹 검색"
+        else:
+            return "죄송합니다. 해당 질문에 대한 정확한 답변을 찾지 못했습니다.", "검색 결과 없음"
 
 def main():
     st.title("텔코 챗봇")
