@@ -1,23 +1,29 @@
 import streamlit as st
+import pandas as pd
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
 import requests
-from bs4 import BeautifulSoup
 
-def search_tworld(query):
-    url = "https://www.tworld.co.kr/web/home"
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
-    response = requests.get(url, headers=headers)
-    soup = BeautifulSoup(response.content, 'html.parser')
-    
-    results = []
-    keywords = query.lower().split()
-    for elem in soup.find_all(['p', 'li', 'h3', 'h4', 'div', 'span']):
-        text = elem.get_text().strip().lower()
-        if any(keyword in text for keyword in keywords):
-            results.append(elem.get_text().strip())
-    
-    return results[:3]  # 최대 3개의 결과만 반환
+@st.cache_data
+def load_data():
+    url = 'https://huggingface.co/datasets/bitext/Bitext-telco-llm-chatbot-training-dataset/resolve/main/bitext-telco-llm-chatbot-training-dataset.csv'
+    df = pd.read_csv(url)
+    return df.sample(n=1000, random_state=42)  # 1000개 샘플만 사용
+
+@st.cache_resource
+def load_sentence_transformer():
+    return SentenceTransformer('sentence-transformers/distiluse-base-multilingual-cased-v2')
+
+@st.cache_data
+def precompute_embeddings(_df, _sentence_transformer):
+    return _df.assign(embedding=_df['instruction'].apply(lambda x: _sentence_transformer.encode(x).tolist()))
+
+def retrieve_relevant_context(query, df, sentence_transformer):
+    query_embedding = sentence_transformer.encode([query])
+    similarities = cosine_similarity(query_embedding, np.stack(df['embedding'].values))
+    df['similarity'] = similarities[0]
+    return df.nlargest(3, 'similarity')
 
 def web_search(query):
     url = f"https://api.duckduckgo.com/?q={query}&format=json"
@@ -31,21 +37,17 @@ def web_search(query):
             results.append(topic['Text'])
     return results[:3]  # 최대 3개의 결과만 반환
 
-def generate_response(query, tworld_results, web_results):
+def generate_response(query, fine_tuning_results, web_results):
     response = f"'{query}'에 대한 검색 결과입니다:\n\n"
     
-    if tworld_results:
-        response += "T world 웹사이트 검색 결과:\n"
-        for i, result in enumerate(tworld_results, 1):
-            response += f"{i}. {result}\n"
-        response += "\n"
-    
-    if web_results:
+    if not fine_tuning_results.empty and fine_tuning_results.iloc[0]['similarity'] > 0.7:
+        response += "Fine-tuning 데이터 검색 결과:\n"
+        response += fine_tuning_results.iloc[0]['response'] + "\n\n"
+    elif web_results:
         response += "웹 검색 결과:\n"
         for i, result in enumerate(web_results, 1):
-            response += f"{i}. {result}\n"
-    
-    if not tworld_results and not web_results:
+            response += f"{i}. {result}\n\n"
+    else:
         response = f"죄송합니다. '{query}'에 대한 정보를 찾지 못했습니다. 다른 방식으로 질문을 해보시거나, 고객센터에 문의해 주세요."
     
     return response
@@ -53,17 +55,21 @@ def generate_response(query, tworld_results, web_results):
 def main():
     st.title("텔코 챗봇")
 
+    df = load_data()
+    sentence_transformer = load_sentence_transformer()
+    df = precompute_embeddings(df, sentence_transformer)
+
     user_input = st.text_input("질문을 입력하세요:")
 
     if user_input:
-        tworld_results = search_tworld(user_input)
+        fine_tuning_results = retrieve_relevant_context(user_input, df, sentence_transformer)
         web_results = web_search(user_input)
-        response = generate_response(user_input, tworld_results, web_results)
+        response = generate_response(user_input, fine_tuning_results, web_results)
         
         st.write("챗봇 응답:")
         st.write(response)
-        if tworld_results:
-            st.write("위 답변은 T world 웹사이트와 웹 검색을 참고했습니다.")
+        if not fine_tuning_results.empty and fine_tuning_results.iloc[0]['similarity'] > 0.7:
+            st.write("위 답변은 Fine-tuning 데이터를 참고했습니다.")
         elif web_results:
             st.write("위 답변은 웹 검색을 참고했습니다.")
         else:
