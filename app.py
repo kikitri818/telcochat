@@ -21,12 +21,14 @@ def load_embedding_model():
 # Fine-tuning을 위한 모델 및 토크나이저 로드
 @st.cache_resource
 def load_seq2seq_model():
-    model_name = "google/mt5-small"
+    model_name = "facebook/mbart-large-50-many-to-many-mmt"
     try:
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
     except Exception as e:
-        st.error(f"모델 로딩 중 오류 발생: {e}")
+        st.error(f"모델 로딩 중 오류 발생: {str(e)}")
+        import traceback
+        st.error(f"상세 오류: {traceback.format_exc()}")
         tokenizer = None
         model = None
     return tokenizer, model
@@ -110,7 +112,10 @@ def rag(query, df, embedding_model, seq2seq_model, tokenizer):
     input_text = f"질문: {context}\n답변:"
     
     input_ids = tokenizer(input_text, return_tensors="pt").input_ids
-    outputs = seq2seq_model.generate(input_ids, max_length=150, num_return_sequences=1, no_repeat_ngram_size=2)
+    # mBART 모델을 위한 언어 설정
+    tokenizer.src_lang = "ko_KR"
+    forced_bos_token_id = tokenizer.lang_code_to_id["ko_KR"]
+    outputs = seq2seq_model.generate(input_ids, max_length=150, num_return_sequences=1, no_repeat_ngram_size=2, forced_bos_token_id=forced_bos_token_id)
     answer = tokenizer.decode(outputs[0], skip_special_tokens=True)
     
     answer = clean_text(answer)
