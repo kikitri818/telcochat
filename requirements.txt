@@ -3,3 +3,4 @@ pandas
 sentence-transformers
 scikit-learn
 datasets
+googletrans==3.1.0a0
