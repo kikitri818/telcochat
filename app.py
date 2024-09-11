@@ -7,7 +7,9 @@ import torch
 @st.cache_resource
 def load_data():
     df = pd.read_csv("https://huggingface.co/datasets/bitext/Bitext-telco-llm-chatbot-training-dataset/raw/main/bitext-telco-llm-chatbot-training-dataset.csv")
-    return df.sample(n=1000, random_state=42)  # 1000개의 샘플을 사용
+    st.write(f"전체 데이터셋 크기: {len(df)}")
+    sample_size = min(1000, len(df))
+    return df.sample(n=sample_size, random_state=42)
 
 @st.cache_resource
 def prepare_data(df):
@@ -50,7 +52,7 @@ def train_model(X_train, X_test, y_train, y_test):
 st.title("텔코 고객센터 챗봇")
 
 df = load_data()
-st.write(f"로드된 데이터 샘플 수: {len(df)}")
+st.write(f"사용된 데이터 샘플 수: {len(df)}")
 
 X_train, X_test, y_train, y_test = prepare_data(df)
 model, tokenizer, intents = train_model(X_train, X_test, y_train, y_test)
