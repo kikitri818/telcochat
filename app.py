@@ -1,102 +1,94 @@
 import streamlit as st
 import pandas as pd
 from sentence_transformers import SentenceTransformer
+from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments
+import torch
 from sklearn.metrics.pairwise import cosine_similarity
-import numpy as np
-from deep_translator import GoogleTranslator
-import re
+from datasets import Dataset
 
+# 데이터 로드 및 전처리
 @st.cache_data
 def load_data():
-    url = 'https://huggingface.co/datasets/bitext/Bitext-telco-llm-chatbot-training-dataset/resolve/main/bitext-telco-llm-chatbot-training-dataset.csv'
-    return pd.read_csv(url)
+    df = pd.read_csv("https://huggingface.co/datasets/bitext/Bitext-telco-llm-chatbot-training-dataset/raw/main/bitext-telco-llm-chatbot-training-dataset.csv")
+    if len(df) > 100:  # 데이터가 100개 이상이면 샘플링
+        return df.sample(n=100, random_state=42)
+    return df
 
+df = load_data()
+
+# Sentence Transformer 모델 로드
 @st.cache_resource
 def load_sentence_transformer():
     return SentenceTransformer('sentence-transformers/distiluse-base-multilingual-cased-v2')
 
-@st.cache_resource
-def load_translator():
-    return GoogleTranslator(source='en', target='ko')
+sentence_model = load_sentence_transformer()
 
+# 임베딩 생성
 @st.cache_data
-def precompute_embeddings(_df, _sentence_transformer):
-    return _df.assign(embedding=_df['instruction'].apply(lambda x: _sentence_transformer.encode(x).tolist()))
+def create_embeddings(_df, _model):
+    return _model.encode(_df['instruction'].tolist())
 
-def retrieve_relevant_context(query, df, sentence_transformer):
-    query_embedding = sentence_transformer.encode([query])
-    similarities = cosine_similarity(query_embedding, np.stack(df['embedding'].values))
-    df['similarity'] = similarities[0]
-    return df.nlargest(3, 'similarity')
+embeddings = create_embeddings(df, sentence_model)
 
-def clean_response(response):
-    template_mapping = {
-        'WEBSITE_URL': '웹사이트',
-        'INVOICE_SECTION': '청구서 섹션',
-        'DISPUTE_INVOICE_OPTION': '청구서 분쟁 옵션',
-        'SUPPORT_TEAM_CONTACT': '고객 지원팀 연락처',
-        'DAYS_NUMBER': '며칠',
-        'TOTAL_AMOUNT': '총 금액',
-        'ACCOUNT_SECTION': '계정 섹션',
-        'PAYMENT_METHOD': '결제 방법',
-        'CUSTOMER_SERVICE': '고객 서비스',
-        'ACCOUNT_DETAILS': '계정 세부 정보',
-        'BILL_AMOUNT': '청구 금액',
-        'DUE_DATE': '납부 기한',
-        'PAYMENT_OPTIONS': '결제 옵션',
-        'BILLING_CYCLE': '청구 주기',
-        'ACCOUNT_NUMBER': '계정 번호',
-        'SERVICE_PLAN': '서비스 플랜',
-        'DATA_USAGE': '데이터 사용량',
-        'CALL_MINUTES': '통화 시간',
-        'TEXT_MESSAGES': '문자 메시지 수',
-        'SUPPORT_HOURS': '고객 지원 시간',
-        'CONTACT_NUMBER': '연락처 번호',
-        'ACTIVATION_SECTION': '활성화 섹션',
-        'PRODUCT_NAME': '제품명',
-        'SUBSCRIPTION_DETAILS': '구독 정보',
-        'PACKAGE_NAME': '패키지명',
-        'CANCELLATION_POLICY': '해지 정책',
-        'REFUND_POLICY': '환불 정책',
-        'TERMS_AND_CONDITIONS': '이용 약관',
-        'PRIVACY_POLICY': '개인정보 처리방침'
-    }
+# KoGPT 모델 및 토크나이저 로드
+@st.cache_resource
+def load_kogpt_model():
+    model_name = "skt/kogpt2-base-v2"
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name)
+    return tokenizer, model
+
+tokenizer, model = load_kogpt_model()
+
+# Fine-tuning
+def fine_tune_model(_df, _tokenizer, _model):
+    dataset = Dataset.from_pandas(_df)
     
-    def replace_template(match):
-        key = match.group(1)
-        return template_mapping.get(key, '')
+    def tokenize_function(examples):
+        return _tokenizer(examples["instruction"] + " " + examples["response"], truncation=True, padding="max_length", max_length=512)
     
-    # 모든 템플릿 변수를 대체하거나 제거
-    cleaned_response = re.sub(r'\{\{(\w+)\}\}', replace_template, response)
+    tokenized_dataset = dataset.map(tokenize_function, batched=True)
     
-    return cleaned_response.strip()
+    training_args = TrainingArguments(
+        output_dir="./results",
+        num_train_epochs=1,
+        per_device_train_batch_size=4,
+        save_steps=10_000,
+        save_total_limit=2,
+    )
+    
+    trainer = Trainer(
+        model=_model,
+        args=training_args,
+        train_dataset=tokenized_dataset,
+    )
+    
+    trainer.train()
+    return _model
 
-def generate_response(query, relevant_context, translator):
-    if not relevant_context.empty and relevant_context.iloc[0]['similarity'] > 0.5:
-        responses = relevant_context['response'].apply(clean_response).tolist()
-        combined_response = ' '.join(responses)
-        translated_response = translator.translate(combined_response)
-        return translated_response, "RAG/Fine-tuning"
-    else:
-        return "죄송합니다. 해당 질문에 대한 정확한 답변을 찾지 못했습니다.", "검색 결과 없음"
+model = fine_tune_model(df, tokenizer, model)
 
-def main():
-    st.title("텔코 챗봇")
+# RAG 함수
+def rag(query, top_k=3):
+    query_embedding = sentence_model.encode([query])
+    similarities = cosine_similarity(query_embedding, embeddings)[0]
+    top_indices = similarities.argsort()[-top_k:][::-1]
+    
+    context = "\n".join(df.iloc[top_indices]['response'].tolist())
+    
+    prompt = f"다음 정보를 바탕으로 질문에 답변해주세요:\n\n{context}\n\n질문: {query}\n답변:"
+    
+    inputs = tokenizer(prompt, return_tensors="pt")
+    with torch.no_grad():
+        outputs = model.generate(**inputs, max_new_tokens=150, do_sample=True, temperature=0.7)
+    
+    return tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-    df = load_data()
-    sentence_transformer = load_sentence_transformer()
-    translator = load_translator()
-    df = precompute_embeddings(df, sentence_transformer)
+# Streamlit 앱
+st.title("통신사 고객센터 챗봇")
 
-    user_input = st.text_input("질문을 입력하세요:")
+user_input = st.text_input("질문을 입력하세요:")
 
-    if user_input:
-        relevant_context = retrieve_relevant_context(user_input, df, sentence_transformer)
-        response, source = generate_response(user_input, relevant_context, translator)
-        
-        st.write("챗봇 응답:")
-        st.write(response)
-        st.write(f"위 답변은 {source}을 통해 생성되었습니다.")
-
-if __name__ == "__main__":
-    main()
+if user_input:
+    answer = rag(user_input)
+    st.write("답변:", answer)
