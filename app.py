@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import torch
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -12,7 +13,7 @@ import time
 @st.cache_data
 def load_data():
     df = pd.read_csv("hf://datasets/bitext/Bitext-telco-llm-chatbot-training-dataset/bitext-telco-llm-chatbot-training-dataset.csv")
-    return df.head(1000)  # 데이터 크기 제한
+    return df.head(100)  # 데이터 크기를 100개로 제한
 
 # 임베딩 모델 로드
 @st.cache_resource
@@ -67,7 +68,13 @@ def translate_to_korean(text):
 # 임베딩 계산 함수
 @st.cache_data
 def compute_embeddings(_df, _embedding_model):
-    return _df['instruction'].apply(lambda x: _embedding_model.encode(x).tolist())
+    embeddings = []
+    for i, text in enumerate(_df['instruction']):
+        embedding = _embedding_model.encode(text).tolist()
+        embeddings.append(embedding)
+        if i % 10 == 0:
+            st.progress((i + 1) / len(_df))
+    return embeddings
 
 # RAG 함수
 def rag(query, df, embedding_model, seq2seq_model, tokenizer):
@@ -76,7 +83,8 @@ def rag(query, df, embedding_model, seq2seq_model, tokenizer):
         query_embedding = embedding_model.encode([query])
         
         if 'embedding' not in df.columns:
-            df['embedding'] = compute_embeddings(df, embedding_model)
+            with st.spinner('임베딩 계산 중...'):
+                df['embedding'] = compute_embeddings(df, embedding_model)
         
         df['similarity'] = df['embedding'].apply(lambda x: cosine_similarity([x], query_embedding)[0][0])
         most_similar = df.nlargest(1, 'similarity')
@@ -110,9 +118,16 @@ tokenizer, seq2seq_model = load_seq2seq_model()
 if tokenizer is None or seq2seq_model is None:
     st.error("모델 로딩에 실패했습니다. 앱을 다시 시작해주세요.")
 else:
+    # 미리 임베딩 계산
+    if 'embedding' not in df.columns:
+        with st.spinner('초기 임베딩 계산 중...'):
+            df['embedding'] = compute_embeddings(df, embedding_model)
+        st.success('임베딩 계산 완료!')
+
     query = st.text_input("질문을 입력하세요:")
 
     if query:
         with st.spinner('답변을 생성 중입니다...'):
             answer = rag(query, df, embedding_model, seq2seq_model, tokenizer)
         st.write("답변:", answer)
+        
