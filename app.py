@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datasets import load_dataset
 from sentence_transformers import SentenceTransformer
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments
 import torch
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -11,8 +11,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 def load_data():
     dataset = load_dataset("bitext/Bitext-telco-llm-chatbot-training-dataset", split="train")
     df = pd.DataFrame(dataset)
-    if len(df) > 100:  # 데이터가 100개 이상이면 샘플링
-        return df.sample(n=100, random_state=42)
+    if len(df) > 1000:  # 데이터가 1000개 이상이면 샘플링
+        return df.sample(n=1000, random_state=42)
     return df
 
 df = load_data()
@@ -41,6 +41,36 @@ def load_kogpt_model():
 
 tokenizer, model = load_kogpt_model()
 
+# Fine-tuning
+@st.cache_resource
+def fine_tune_model(_df, _tokenizer, _model):
+    dataset = Dataset.from_pandas(_df)
+    
+    def tokenize_function(examples):
+        prompt = [f"질문: {q}\n답변: {r}" for q, r in zip(examples["instruction"], examples["response"])]
+        return _tokenizer(prompt, truncation=True, padding="max_length", max_length=512)
+    
+    tokenized_dataset = dataset.map(tokenize_function, batched=True, remove_columns=dataset.column_names)
+    
+    training_args = TrainingArguments(
+        output_dir="./results",
+        num_train_epochs=1,
+        per_device_train_batch_size=4,
+        save_steps=10_000,
+        save_total_limit=2,
+    )
+    
+    trainer = Trainer(
+        model=_model,
+        args=training_args,
+        train_dataset=tokenized_dataset,
+    )
+    
+    trainer.train()
+    return _model
+
+model = fine_tune_model(df, tokenizer, model)
+
 # RAG 함수
 def rag(query, top_k=3):
     try:
@@ -54,9 +84,19 @@ def rag(query, top_k=3):
         
         inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
         with torch.no_grad():
-            outputs = model.generate(**inputs, max_new_tokens=150, do_sample=True, temperature=0.7)
+            outputs = model.generate(**inputs, max_new_tokens=150, do_sample=True, temperature=0.7, top_p=0.95)
         
-        return tokenizer.decode(outputs[0], skip_special_tokens=True)
+        response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        
+        # 답변 부분만 추출
+        answer_start = response.find("답변:") + 3
+        answer = response[answer_start:].strip()
+        
+        # 답변이 너무 길면 첫 문장만 반환
+        if len(answer) > 100:
+            answer = answer.split('.')[0] + '.'
+        
+        return answer
     except Exception as e:
         return f"죄송합니다. 답변을 생성하는 중에 오류가 발생했습니다: {str(e)}"
 
