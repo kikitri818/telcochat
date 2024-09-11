@@ -1,8 +1,7 @@
 import streamlit as st
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from transformers import AutoTokenizer, AutoModelForQuestionAnswering, Trainer, TrainingArguments
-from datasets import Dataset
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, Trainer, TrainingArguments
 import torch
 
 @st.cache_resource
@@ -12,24 +11,21 @@ def load_data():
 
 @st.cache_resource
 def prepare_data(df):
-    dataset = Dataset.from_pandas(df)
-    dataset = dataset.map(lambda x: {
-        "question": x["input"],
-        "context": x["response"],
-        "answer": x["intent"]
-    })
-    return dataset.train_test_split(test_size=0.2, seed=42)
+    X = df['input']
+    y = df['intent']
+    return train_test_split(X, y, test_size=0.2, random_state=42)
 
 @st.cache_resource
-def train_model(dataset):
-    model_name = "distilbert-base-uncased-distilled-squad"
+def train_model(X_train, X_test, y_train, y_test):
+    model_name = "distilbert-base-uncased"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForQuestionAnswering.from_pretrained(model_name)
+    model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=len(set(y_train)))
 
-    def tokenize_function(examples):
-        return tokenizer(examples["question"], examples["context"], truncation=True, padding="max_length", max_length=512)
+    train_encodings = tokenizer(X_train.tolist(), truncation=True, padding=True)
+    test_encodings = tokenizer(X_test.tolist(), truncation=True, padding=True)
 
-    tokenized_datasets = dataset.map(tokenize_function, batched=True)
+    train_dataset = list(zip(train_encodings['input_ids'], train_encodings['attention_mask'], y_train))
+    test_dataset = list(zip(test_encodings['input_ids'], test_encodings['attention_mask'], y_test))
 
     training_args = TrainingArguments(
         output_dir="./results",
@@ -44,31 +40,28 @@ def train_model(dataset):
     trainer = Trainer(
         model=model,
         args=training_args,
-        train_dataset=tokenized_datasets["train"],
-        eval_dataset=tokenized_datasets["test"],
+        train_dataset=train_dataset,
+        eval_dataset=test_dataset,
     )
 
     trainer.train()
-    return model, tokenizer
+    return model, tokenizer, list(set(y_train))
 
 st.title("텔코 고객센터 챗봇")
 
 df = load_data()
 st.write(f"로드된 데이터 샘플 수: {len(df)}")
 
-dataset = prepare_data(df)
-model, tokenizer = train_model(dataset)
+X_train, X_test, y_train, y_test = prepare_data(df)
+model, tokenizer, intents = train_model(X_train, X_test, y_train, y_test)
 
 user_input = st.text_input("질문을 입력하세요:")
 
 if user_input:
-    context = "이 챗봇은 텔코 회사의 고객 서비스를 지원합니다."  # 실제 상황에 맞는 컨텍스트로 대체해야 합니다
-    inputs = tokenizer(user_input, context, return_tensors="pt")
+    inputs = tokenizer(user_input, return_tensors="pt", truncation=True, padding=True)
     with torch.no_grad():
         outputs = model(**inputs)
+    predicted_intent = intents[outputs.logits.argmax().item()]
     
-    answer_start = torch.argmax(outputs.start_logits)
-    answer_end = torch.argmax(outputs.end_logits) + 1
-    answer = tokenizer.decode(inputs["input_ids"][0][answer_start:answer_end])
-    
-    st.write(f"답변: {answer}")
+    st.write(f"예측된 의도: {predicted_intent}")
+    # 여기에 의도에 따른 응답 로직을 추가할 수 있습니다.
