@@ -1,5 +1,7 @@
 import streamlit as st
 import pandas as pd
+import requests
+from io import StringIO
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -8,19 +10,23 @@ import torch
 
 @st.cache_resource
 def load_data():
-    df = pd.read_csv("https://huggingface.co/datasets/bitext/Bitext-telco-llm-chatbot-training-dataset/raw/main/bitext-telco-llm-chatbot-training-dataset.csv")
-    st.write("데이터셋 구조:")
-    st.write(df.head())
-    st.write("열 이름:", df.columns.tolist())
-    return df
+    url = "https://huggingface.co/datasets/bitext/Bitext-telco-llm-chatbot-training-dataset/raw/main/bitext-telco-llm-chatbot-training-dataset.csv"
+    response = requests.get(url)
+    if response.status_code == 200:
+        df = pd.read_csv(StringIO(response.text))
+        st.write("데이터셋 구조:")
+        st.write(df.head())
+        st.write("열 이름:", df.columns.tolist())
+        return df
+    else:
+        st.error("데이터를 불러오는 데 실패했습니다.")
+        return None
 
 @st.cache_resource
 def prepare_data_and_index(df):
-    # 첫 번째 열을 질문으로 사용
-    question_column = df.columns[0]
     vectorizer = TfidfVectorizer()
-    tfidf_matrix = vectorizer.fit_transform(df[question_column])
-    return df, vectorizer, tfidf_matrix
+    tfidf_matrix = vectorizer.fit_transform(df['instruction'])
+    return vectorizer, tfidf_matrix
 
 @st.cache_resource
 def train_model(df):
@@ -28,12 +34,9 @@ def train_model(df):
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
 
-    question_column = df.columns[0]
-    answer_column = df.columns[1]
-
     def preprocess_function(examples):
-        inputs = ["question: " + q for q in examples[question_column]]
-        targets = examples[answer_column]
+        inputs = ["question: " + q for q in examples['instruction']]
+        targets = examples['response']
         model_inputs = tokenizer(inputs, max_length=128, truncation=True, padding="max_length")
         with tokenizer.as_target_tokenizer():
             labels = tokenizer(targets, max_length=128, truncation=True, padding="max_length")
@@ -67,26 +70,28 @@ def train_model(df):
 st.title("텔코 고객센터 챗봇")
 
 df = load_data()
-df, vectorizer, tfidf_matrix = prepare_data_and_index(df)
-model, tokenizer = train_model(df)
 
-user_input = st.text_input("질문을 입력하세요:")
+if df is not None and 'instruction' in df.columns and 'response' in df.columns:
+    vectorizer, tfidf_matrix = prepare_data_and_index(df)
+    model, tokenizer = train_model(df)
 
-if user_input:
-    # RAG: Retrieve similar questions
-    user_vector = vectorizer.transform([user_input])
-    similarities = cosine_similarity(user_vector, tfidf_matrix).flatten()
-    top_indices = similarities.argsort()[-3:][::-1]
-    
-    question_column = df.columns[0]
-    answer_column = df.columns[1]
-    context = " ".join(df.iloc[top_indices][answer_column].tolist())
-    
-    # Generate response
-    input_text = f"question: {user_input} context: {context}"
-    input_ids = tokenizer(input_text, return_tensors="pt").input_ids
-    
-    outputs = model.generate(input_ids, max_length=150, num_return_sequences=1, no_repeat_ngram_size=2)
-    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    
-    st.write(f"챗봇 응답: {response}")
+    user_input = st.text_input("질문을 입력하세요:")
+
+    if user_input:
+        # RAG: Retrieve similar questions
+        user_vector = vectorizer.transform([user_input])
+        similarities = cosine_similarity(user_vector, tfidf_matrix).flatten()
+        top_indices = similarities.argsort()[-3:][::-1]
+        
+        context = " ".join(df.iloc[top_indices]['response'].tolist())
+        
+        # Generate response
+        input_text = f"question: {user_input} context: {context}"
+        input_ids = tokenizer(input_text, return_tensors="pt").input_ids
+        
+        outputs = model.generate(input_ids, max_length=150, num_return_sequences=1, no_repeat_ngram_size=2)
+        response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        
+        st.write(f"챗봇 응답: {response}")
+else:
+    st.error("올바른 데이터를 불러오지 못했습니다. 데이터셋의 구조를 확인해주세요.")
