@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datasets import load_dataset
 from sentence_transformers import SentenceTransformer
-from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments
+from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -16,10 +16,6 @@ def load_data():
     return df
 
 df = load_data()
-
-# 데이터프레임 구조 확인
-st.write("데이터프레임 열:", df.columns)
-st.write("데이터프레임 샘플:", df.head())
 
 # Sentence Transformer 모델 로드
 @st.cache_resource
@@ -44,34 +40,6 @@ def load_kogpt_model():
     return tokenizer, model
 
 tokenizer, model = load_kogpt_model()
-
-# Fine-tuning
-def fine_tune_model(_df, _tokenizer, _model):
-    dataset = load_dataset("bitext/Bitext-telco-llm-chatbot-training-dataset", split="train")
-    
-    def tokenize_function(examples):
-        return _tokenizer(examples["instruction"] + " " + examples["response"], truncation=True, padding="max_length", max_length=512)
-    
-    tokenized_dataset = dataset.map(tokenize_function, batched=True)
-    
-    training_args = TrainingArguments(
-        output_dir="./results",
-        num_train_epochs=1,
-        per_device_train_batch_size=4,
-        save_steps=10_000,
-        save_total_limit=2,
-    )
-    
-    trainer = Trainer(
-        model=_model,
-        args=training_args,
-        train_dataset=tokenized_dataset,
-    )
-    
-    trainer.train()
-    return _model
-
-model = fine_tune_model(df, tokenizer, model)
 
 # RAG 함수
 def rag(query, top_k=3):
