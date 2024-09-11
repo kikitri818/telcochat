@@ -23,7 +23,7 @@ def load_sentence_transformer():
 # KoGPT 모델 및 토크나이저 로드
 @st.cache_resource
 def load_kogpt_model():
-    model_name = "kykim/gpt3-kor-small_based_on_gpt2"
+    model_name = "skt/kogpt2-base-v2"  # 한국어에 특화된 모델
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForCausalLM.from_pretrained(model_name)
     return tokenizer, model
@@ -49,26 +49,26 @@ def rag(query, top_k=3):
         
         context = "\n".join(df.iloc[top_indices]['response'].tolist())
         
-        prompt = f"""다음은 고객 질문에 대한 관련 정보입니다:
+        prompt = f"""
+고객님의 질문: {query}
 
+위 질문에 대해 다음 정보를 참고하여 답변해주세요:
 {context}
 
-고객 질문: {query}
+한국어로 자연스럽게, 고객 상담원처럼 친절하고 공손하게 대답해주세요. 불필요한 정보는 제외하고 핵심만 간결하게 말씀해 주세요.
 
-위 정보를 바탕으로 고객 질문에 대해 한국어로 자연스럽게 답변해주세요. 
-마치 고객 상담원이 친절하게 대화하듯이 답변을 작성해주세요. 
-불필요한 정보는 제외하고 핵심만 간결하게 말씀해 주세요:"""
+답변:"""
         
         inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
         with torch.no_grad():
-            outputs = model.generate(**inputs, max_new_tokens=200, do_sample=True, temperature=0.7, top_p=0.95, pad_token_id=tokenizer.eos_token_id)
+            outputs = model.generate(**inputs, max_new_tokens=150, do_sample=True, temperature=0.7, top_p=0.95, pad_token_id=tokenizer.eos_token_id)
         
         response = tokenizer.decode(outputs[0], skip_special_tokens=True)
         
         # 프롬프트 부분 제거
-        answer = response.split(prompt)[-1].strip()
+        answer = response.split("답변:")[-1].strip()
         
-        if not answer:
+        if not answer or len(answer) < 10:
             answer = "죄송합니다. 현재 답변을 생성할 수 없습니다. 다시 한 번 질문해 주시겠어요?"
         
         return answer
