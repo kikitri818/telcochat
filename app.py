@@ -9,12 +9,17 @@ import torch
 @st.cache_resource
 def load_data():
     df = pd.read_csv("https://huggingface.co/datasets/bitext/Bitext-telco-llm-chatbot-training-dataset/raw/main/bitext-telco-llm-chatbot-training-dataset.csv")
+    st.write("데이터셋 구조:")
+    st.write(df.head())
+    st.write("열 이름:", df.columns.tolist())
     return df
 
 @st.cache_resource
 def prepare_data_and_index(df):
+    # 첫 번째 열을 질문으로 사용
+    question_column = df.columns[0]
     vectorizer = TfidfVectorizer()
-    tfidf_matrix = vectorizer.fit_transform(df['instruction'])
+    tfidf_matrix = vectorizer.fit_transform(df[question_column])
     return df, vectorizer, tfidf_matrix
 
 @st.cache_resource
@@ -23,9 +28,12 @@ def train_model(df):
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
 
+    question_column = df.columns[0]
+    answer_column = df.columns[1]
+
     def preprocess_function(examples):
-        inputs = ["question: " + q for q in examples['instruction']]
-        targets = examples['response']
+        inputs = ["question: " + q for q in examples[question_column]]
+        targets = examples[answer_column]
         model_inputs = tokenizer(inputs, max_length=128, truncation=True, padding="max_length")
         with tokenizer.as_target_tokenizer():
             labels = tokenizer(targets, max_length=128, truncation=True, padding="max_length")
@@ -70,7 +78,9 @@ if user_input:
     similarities = cosine_similarity(user_vector, tfidf_matrix).flatten()
     top_indices = similarities.argsort()[-3:][::-1]
     
-    context = " ".join(df.iloc[top_indices]['response'].tolist())
+    question_column = df.columns[0]
+    answer_column = df.columns[1]
+    context = " ".join(df.iloc[top_indices][answer_column].tolist())
     
     # Generate response
     input_text = f"question: {user_input} context: {context}"
