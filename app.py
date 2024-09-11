@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datasets import load_dataset, Dataset
 from sentence_transformers import SentenceTransformer
-from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments
+from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments, DataCollatorForLanguageModeling
 import torch
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -48,9 +48,11 @@ def fine_tune_model(_df, _tokenizer, _model):
     
     def tokenize_function(examples):
         prompts = [f"질문: {q}\n답변: {r}" for q, r in zip(examples["instruction"], examples["response"])]
-        return _tokenizer(prompts, truncation=True, padding="max_length", max_length=512)
+        return _tokenizer(prompts, truncation=True, padding=True, max_length=512)
     
     tokenized_dataset = dataset.map(tokenize_function, batched=True, remove_columns=dataset.column_names)
+    
+    data_collator = DataCollatorForLanguageModeling(tokenizer=_tokenizer, mlm=False)
     
     training_args = TrainingArguments(
         output_dir="./results",
@@ -64,6 +66,7 @@ def fine_tune_model(_df, _tokenizer, _model):
         model=_model,
         args=training_args,
         train_dataset=tokenized_dataset,
+        data_collator=data_collator,
     )
     
     trainer.train()
@@ -109,3 +112,4 @@ user_input = st.text_input("질문을 입력하세요:")
 if user_input:
     answer = rag(user_input)
     st.write("답변:", answer)
+    
