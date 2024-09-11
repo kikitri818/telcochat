@@ -6,3 +6,4 @@ scikit-learn
 datasets
 googletrans==3.1.0a0
 transformers
+sentencepiece
