@@ -8,12 +8,13 @@ import re
 from googletrans import Translator
 from transformers import MBart50TokenizerFast, MBartForConditionalGeneration
 import time
+import concurrent.futures
 
 # 데이터 로드 및 전처리
 @st.cache_data
 def load_data():
     df = pd.read_csv("hf://datasets/bitext/Bitext-telco-llm-chatbot-training-dataset/bitext-telco-llm-chatbot-training-dataset.csv")
-    return df.head(100)  # 데이터 크기를 100개로 제한
+    return df.head(50)  # 데이터 크기를 50개로 제한
 
 # 임베딩 모델 로드
 @st.cache_resource
@@ -31,8 +32,6 @@ def load_seq2seq_model():
         tokenizer.tgt_lang = "ko_KR"
     except Exception as e:
         st.error(f"모델 로딩 중 오류 발생: {str(e)}")
-        import traceback
-        st.error(f"상세 오류: {traceback.format_exc()}")
         tokenizer = None
         model = None
     return tokenizer, model
@@ -62,29 +61,20 @@ def translate_to_korean(text):
     try:
         return translator.translate(text, dest='ko').text
     except Exception as e:
-        st.error(f"번역 중 오류 발생: {e}")
         return text
 
 # 임베딩 계산 함수
 @st.cache_data
 def compute_embeddings(_df, _embedding_model):
-    embeddings = []
-    for i, text in enumerate(_df['instruction']):
-        embedding = _embedding_model.encode(text).tolist()
-        embeddings.append(embedding)
-        if i % 10 == 0:
-            st.progress((i + 1) / len(_df))
-    return embeddings
+    return [_embedding_model.encode(text).tolist() for text in _df['instruction']]
 
 # RAG 함수
 def rag(query, df, embedding_model, seq2seq_model, tokenizer):
     try:
-        start_time = time.time()
         query_embedding = embedding_model.encode([query])
         
         if 'embedding' not in df.columns:
-            with st.spinner('임베딩 계산 중...'):
-                df['embedding'] = compute_embeddings(df, embedding_model)
+            df['embedding'] = compute_embeddings(df, embedding_model)
         
         df['similarity'] = df['embedding'].apply(lambda x: cosine_similarity([x], query_embedding)[0][0])
         most_similar = df.nlargest(1, 'similarity')
@@ -97,16 +87,20 @@ def rag(query, df, embedding_model, seq2seq_model, tokenizer):
         answer = tokenizer.decode(outputs[0], skip_special_tokens=True)
         
         answer = clean_text(answer)
-        
-        end_time = time.time()
-        st.info(f"처리 시간: {end_time - start_time:.2f}초")
+        answer = translate_to_korean(answer)
         
         return answer
     except Exception as e:
-        st.error(f"RAG 처리 중 오류 발생: {str(e)}")
-        import traceback
-        st.error(f"상세 오류: {traceback.format_exc()}")
-        return "죄송합니다. 답변을 생성하는 중에 오류가 발생했습니다."
+        return f"답변 생성 중 오류 발생: {str(e)}"
+
+# 시간 제한 있는 함수 실행
+def run_with_timeout(func, args, timeout):
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(func, *args)
+        try:
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            return "답변 생성 시간이 초과되었습니다."
 
 # Streamlit 앱
 st.title("통신사 고객센터 챗봇")
@@ -118,16 +112,9 @@ tokenizer, seq2seq_model = load_seq2seq_model()
 if tokenizer is None or seq2seq_model is None:
     st.error("모델 로딩에 실패했습니다. 앱을 다시 시작해주세요.")
 else:
-    # 미리 임베딩 계산
-    if 'embedding' not in df.columns:
-        with st.spinner('초기 임베딩 계산 중...'):
-            df['embedding'] = compute_embeddings(df, embedding_model)
-        st.success('임베딩 계산 완료!')
-
     query = st.text_input("질문을 입력하세요:")
 
     if query:
         with st.spinner('답변을 생성 중입니다...'):
-            answer = rag(query, df, embedding_model, seq2seq_model, tokenizer)
+            answer = run_with_timeout(rag, (query, df, embedding_model, seq2seq_model, tokenizer), timeout=30)
         st.write("답변:", answer)
-        
