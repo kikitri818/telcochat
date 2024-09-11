@@ -1,92 +1,102 @@
 import streamlit as st
-from datasets import load_dataset
-from sklearn.model_selection import train_test_split
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, Trainer, TrainingArguments
-import torch
 import pandas as pd
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
+from deep_translator import GoogleTranslator
+import re
 
-@st.cache_resource
+@st.cache_data
 def load_data():
-    dataset = load_dataset("bitext/Bitext-telco-llm-chatbot-training-dataset")
-    df = pd.DataFrame(dataset['train'])
-    st.write("데이터셋 구조:")
-    st.write(df.head())
-    st.write("열 이름:", df.columns.tolist())
-    return df
+    url = 'https://huggingface.co/datasets/bitext/Bitext-telco-llm-chatbot-training-dataset/resolve/main/bitext-telco-llm-chatbot-training-dataset.csv'
+    return pd.read_csv(url)
 
 @st.cache_resource
-def prepare_data_and_index(df):
-    vectorizer = TfidfVectorizer()
-    tfidf_matrix = vectorizer.fit_transform(df['instruction'])
-    return vectorizer, tfidf_matrix
+def load_sentence_transformer():
+    return SentenceTransformer('sentence-transformers/distiluse-base-multilingual-cased-v2')
 
 @st.cache_resource
-def train_model(df):
-    model_name = "t5-small"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+def load_translator():
+    return GoogleTranslator(source='en', target='ko')
 
-    def preprocess_function(examples):
-        inputs = ["question: " + q for q in examples['instruction']]
-        targets = examples['response']
-        model_inputs = tokenizer(inputs, max_length=128, truncation=True, padding="max_length")
-        with tokenizer.as_target_tokenizer():
-            labels = tokenizer(targets, max_length=128, truncation=True, padding="max_length")
-        model_inputs["labels"] = labels["input_ids"]
-        return model_inputs
+@st.cache_data
+def precompute_embeddings(_df, _sentence_transformer):
+    return _df.assign(embedding=_df['instruction'].apply(lambda x: _sentence_transformer.encode(x).tolist()))
 
-    dataset = df.to_dict(orient='list')
-    dataset = preprocess_function(dataset)
+def retrieve_relevant_context(query, df, sentence_transformer):
+    query_embedding = sentence_transformer.encode([query])
+    similarities = cosine_similarity(query_embedding, np.stack(df['embedding'].values))
+    df['similarity'] = similarities[0]
+    return df.nlargest(3, 'similarity')
 
-    train_dataset = dataset
+def clean_response(response):
+    template_mapping = {
+        'WEBSITE_URL': '웹사이트',
+        'INVOICE_SECTION': '청구서 섹션',
+        'DISPUTE_INVOICE_OPTION': '청구서 분쟁 옵션',
+        'SUPPORT_TEAM_CONTACT': '고객 지원팀 연락처',
+        'DAYS_NUMBER': '며칠',
+        'TOTAL_AMOUNT': '총 금액',
+        'ACCOUNT_SECTION': '계정 섹션',
+        'PAYMENT_METHOD': '결제 방법',
+        'CUSTOMER_SERVICE': '고객 서비스',
+        'ACCOUNT_DETAILS': '계정 세부 정보',
+        'BILL_AMOUNT': '청구 금액',
+        'DUE_DATE': '납부 기한',
+        'PAYMENT_OPTIONS': '결제 옵션',
+        'BILLING_CYCLE': '청구 주기',
+        'ACCOUNT_NUMBER': '계정 번호',
+        'SERVICE_PLAN': '서비스 플랜',
+        'DATA_USAGE': '데이터 사용량',
+        'CALL_MINUTES': '통화 시간',
+        'TEXT_MESSAGES': '문자 메시지 수',
+        'SUPPORT_HOURS': '고객 지원 시간',
+        'CONTACT_NUMBER': '연락처 번호',
+        'ACTIVATION_SECTION': '활성화 섹션',
+        'PRODUCT_NAME': '제품명',
+        'SUBSCRIPTION_DETAILS': '구독 정보',
+        'PACKAGE_NAME': '패키지명',
+        'CANCELLATION_POLICY': '해지 정책',
+        'REFUND_POLICY': '환불 정책',
+        'TERMS_AND_CONDITIONS': '이용 약관',
+        'PRIVACY_POLICY': '개인정보 처리방침'
+    }
     
-    training_args = TrainingArguments(
-        output_dir="./results",
-        num_train_epochs=3,
-        per_device_train_batch_size=16,
-        per_device_eval_batch_size=64,
-        warmup_steps=500,
-        weight_decay=0.01,
-        logging_dir="./logs",
-    )
+    def replace_template(match):
+        key = match.group(1)
+        return template_mapping.get(key, '')
+    
+    # 모든 템플릿 변수를 대체하거나 제거
+    cleaned_response = re.sub(r'\{\{(\w+)\}\}', replace_template, response)
+    
+    return cleaned_response.strip()
 
-    trainer = Trainer(
-        model=model,
-        args=training_args,
-        train_dataset=train_dataset,
-    )
+def generate_response(query, relevant_context, translator):
+    if not relevant_context.empty and relevant_context.iloc[0]['similarity'] > 0.5:
+        responses = relevant_context['response'].apply(clean_response).tolist()
+        combined_response = ' '.join(responses)
+        translated_response = translator.translate(combined_response)
+        return translated_response, "RAG/Fine-tuning"
+    else:
+        return "죄송합니다. 해당 질문에 대한 정확한 답변을 찾지 못했습니다.", "검색 결과 없음"
 
-    trainer.train()
-    return model, tokenizer
+def main():
+    st.title("텔코 챗봇")
 
-st.title("텔코 고객센터 챗봇")
-
-df = load_data()
-
-if df is not None and 'instruction' in df.columns and 'response' in df.columns:
-    vectorizer, tfidf_matrix = prepare_data_and_index(df)
-    model, tokenizer = train_model(df)
+    df = load_data()
+    sentence_transformer = load_sentence_transformer()
+    translator = load_translator()
+    df = precompute_embeddings(df, sentence_transformer)
 
     user_input = st.text_input("질문을 입력하세요:")
 
     if user_input:
-        # RAG: Retrieve similar questions
-        user_vector = vectorizer.transform([user_input])
-        similarities = cosine_similarity(user_vector, tfidf_matrix).flatten()
-        top_indices = similarities.argsort()[-3:][::-1]
+        relevant_context = retrieve_relevant_context(user_input, df, sentence_transformer)
+        response, source = generate_response(user_input, relevant_context, translator)
         
-        context = " ".join(df.iloc[top_indices]['response'].tolist())
-        
-        # Generate response
-        input_text = f"question: {user_input} context: {context}"
-        input_ids = tokenizer(input_text, return_tensors="pt").input_ids
-        
-        outputs = model.generate(input_ids, max_length=150, num_return_sequences=1, no_repeat_ngram_size=2)
-        response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        
-        st.write(f"챗봇 응답: {response}")
-else:
-    st.error("올바른 데이터를 불러오지 못했습니다. 데이터셋의 구조를 확인해주세요.")
-    
+        st.write("챗봇 응답:")
+        st.write(response)
+        st.write(f"위 답변은 {source}을 통해 생성되었습니다.")
+
+if __name__ == "__main__":
+    main()
