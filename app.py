@@ -64,11 +64,12 @@ def translate_to_korean(text):
         st.error(f"번역 중 오류 발생: {e}")
         return text
 
-# RAG 함수
+# 임베딩 계산 함수
 @st.cache_data
-def compute_embeddings(df, embedding_model):
-    return df['instruction'].apply(lambda x: embedding_model.encode(x))
+def compute_embeddings(_df, _embedding_model):
+    return _df['instruction'].apply(lambda x: _embedding_model.encode(x).tolist())
 
+# RAG 함수
 def rag(query, df, embedding_model, seq2seq_model, tokenizer):
     try:
         start_time = time.time()
