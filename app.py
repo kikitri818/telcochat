@@ -1,10 +1,10 @@
 import streamlit as st
 import pandas as pd
 from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, Trainer, TrainingArguments
-from sentence_transformers import SentenceTransformer
 import torch
-import faiss
 
 @st.cache_resource
 def load_data():
@@ -13,17 +13,9 @@ def load_data():
 
 @st.cache_resource
 def prepare_data_and_index(df):
-    # Sentence transformer for encoding
-    encoder = SentenceTransformer('distilbert-base-nli-mean-tokens')
-    
-    # Encode instructions
-    instruction_embeddings = encoder.encode(df['instruction'].tolist())
-    
-    # Create FAISS index
-    index = faiss.IndexFlatL2(instruction_embeddings.shape[1])
-    index.add(instruction_embeddings)
-    
-    return df, index, encoder
+    vectorizer = TfidfVectorizer()
+    tfidf_matrix = vectorizer.fit_transform(df['instruction'])
+    return df, vectorizer, tfidf_matrix
 
 @st.cache_resource
 def train_model(df):
@@ -67,17 +59,18 @@ def train_model(df):
 st.title("텔코 고객센터 챗봇")
 
 df = load_data()
-df, index, encoder = prepare_data_and_index(df)
+df, vectorizer, tfidf_matrix = prepare_data_and_index(df)
 model, tokenizer = train_model(df)
 
 user_input = st.text_input("질문을 입력하세요:")
 
 if user_input:
     # RAG: Retrieve similar questions
-    query_embedding = encoder.encode([user_input])
-    D, I = index.search(query_embedding, k=3)
+    user_vector = vectorizer.transform([user_input])
+    similarities = cosine_similarity(user_vector, tfidf_matrix).flatten()
+    top_indices = similarities.argsort()[-3:][::-1]
     
-    context = " ".join(df.iloc[I[0]]['response'].tolist())
+    context = " ".join(df.iloc[top_indices]['response'].tolist())
     
     # Generate response
     input_text = f"question: {user_input} context: {context}"
