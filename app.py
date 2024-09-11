@@ -43,19 +43,22 @@ tokenizer, model = load_kogpt_model()
 
 # RAG 함수
 def rag(query, top_k=3):
-    query_embedding = sentence_model.encode([query])
-    similarities = cosine_similarity(query_embedding, embeddings)[0]
-    top_indices = similarities.argsort()[-top_k:][::-1]
-    
-    context = "\n".join(df.iloc[top_indices]['response'].tolist())
-    
-    prompt = f"다음 정보를 바탕으로 질문에 답변해주세요:\n\n{context}\n\n질문: {query}\n답변:"
-    
-    inputs = tokenizer(prompt, return_tensors="pt")
-    with torch.no_grad():
-        outputs = model.generate(**inputs, max_new_tokens=150, do_sample=True, temperature=0.7)
-    
-    return tokenizer.decode(outputs[0], skip_special_tokens=True)
+    try:
+        query_embedding = sentence_model.encode([query])
+        similarities = cosine_similarity(query_embedding, embeddings)[0]
+        top_indices = similarities.argsort()[-top_k:][::-1]
+        
+        context = "\n".join(df.iloc[top_indices]['response'].tolist())
+        
+        prompt = f"질문: {query}\n답변:"
+        
+        inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
+        with torch.no_grad():
+            outputs = model.generate(**inputs, max_new_tokens=150, do_sample=True, temperature=0.7)
+        
+        return tokenizer.decode(outputs[0], skip_special_tokens=True)
+    except Exception as e:
+        return f"죄송합니다. 답변을 생성하는 중에 오류가 발생했습니다: {str(e)}"
 
 # Streamlit 앱
 st.title("통신사 고객센터 챗봇")
