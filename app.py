@@ -5,7 +5,7 @@ from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import re
 from googletrans import Translator
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, Seq2SeqTrainingArguments, Seq2SeqTrainer, DataCollatorForSeq2Seq
+from transformers import MBart50TokenizerFast, MBartForConditionalGeneration
 
 # 데이터 로드 및 전처리
 @st.cache_data
@@ -23,8 +23,10 @@ def load_embedding_model():
 def load_seq2seq_model():
     model_name = "facebook/mbart-large-50-many-to-many-mmt"
     try:
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+        tokenizer = MBart50TokenizerFast.from_pretrained(model_name)
+        model = MBartForConditionalGeneration.from_pretrained(model_name)
+        tokenizer.src_lang = "en_XX"
+        tokenizer.tgt_lang = "ko_KR"
     except Exception as e:
         st.error(f"모델 로딩 중 오류 발생: {str(e)}")
         import traceback
@@ -61,45 +63,6 @@ def translate_to_korean(text):
         st.error(f"번역 중 오류 발생: {e}")
         return text
 
-# 데이터셋 전처리 함수
-def preprocess_function(examples, tokenizer):
-    inputs = [f"질문: {q}" for q in examples["instruction"]]
-    targets = [f"답변: {r}" for r in examples["response"]]
-    model_inputs = tokenizer(inputs, max_length=128, truncation=True, padding="max_length")
-    
-    with tokenizer.as_target_tokenizer():
-        labels = tokenizer(targets, max_length=128, truncation=True, padding="max_length")
-    
-    model_inputs["labels"] = labels["input_ids"]
-    return model_inputs
-
-# Fine-tuning 함수
-def fine_tune_model(_df, tokenizer, model):
-    train_dataset = _df.to_dict(orient="list")
-    train_dataset = preprocess_function(train_dataset, tokenizer)
-    
-    training_args = Seq2SeqTrainingArguments(
-        output_dir="./results",
-        num_train_epochs=3,
-        per_device_train_batch_size=16,
-        warmup_steps=500,
-        weight_decay=0.01,
-        logging_dir='./logs',
-    )
-    
-    data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer, model=model)
-    
-    trainer = Seq2SeqTrainer(
-        model=model,
-        args=training_args,
-        train_dataset=train_dataset,
-        tokenizer=tokenizer,
-        data_collator=data_collator,
-    )
-    
-    trainer.train()
-    return model
-
 # RAG 함수
 def rag(query, df, embedding_model, seq2seq_model, tokenizer):
     query_embedding = embedding_model.encode([query])
@@ -110,15 +73,11 @@ def rag(query, df, embedding_model, seq2seq_model, tokenizer):
     context = most_similar['instruction'].values[0]
     input_text = f"질문: {context}\n답변:"
     
-    input_ids = tokenizer(input_text, return_tensors="pt").input_ids
-    # mBART 모델을 위한 언어 설정
-    tokenizer.src_lang = "ko_KR"
-    forced_bos_token_id = tokenizer.lang_code_to_id["ko_KR"]
-    outputs = seq2seq_model.generate(input_ids, max_length=150, num_return_sequences=1, no_repeat_ngram_size=2, forced_bos_token_id=forced_bos_token_id)
+    inputs = tokenizer(input_text, return_tensors="pt", max_length=512, truncation=True)
+    outputs = seq2seq_model.generate(**inputs, max_length=150, num_return_sequences=1, no_repeat_ngram_size=2, forced_bos_token_id=tokenizer.lang_code_to_id["ko_KR"])
     answer = tokenizer.decode(outputs[0], skip_special_tokens=True)
     
     answer = clean_text(answer)
-    answer = translate_to_korean(answer)
     return answer
 
 # Streamlit 앱
@@ -131,15 +90,6 @@ tokenizer, seq2seq_model = load_seq2seq_model()
 if tokenizer is None or seq2seq_model is None:
     st.error("모델 로딩에 실패했습니다. 앱을 다시 시작해주세요.")
 else:
-    if 'model_fine_tuned' not in st.session_state:
-        st.session_state.model_fine_tuned = False
-
-    if not st.session_state.model_fine_tuned:
-        with st.spinner('모델을 Fine-tuning 중입니다. 잠시만 기다려주세요...'):
-            seq2seq_model = fine_tune_model(df, tokenizer, seq2seq_model)
-        st.session_state.model_fine_tuned = True
-        st.success('Fine-tuning이 완료되었습니다!')
-
     query = st.text_input("질문을 입력하세요:")
 
     if query:
