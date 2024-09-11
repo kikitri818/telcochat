@@ -47,8 +47,8 @@ def fine_tune_model(_df, _tokenizer, _model):
     dataset = Dataset.from_pandas(_df)
     
     def tokenize_function(examples):
-        prompt = [f"질문: {q}\n답변: {r}" for q, r in zip(examples["instruction"], examples["response"])]
-        return _tokenizer(prompt, truncation=True, padding="max_length", max_length=512)
+        prompts = [f"질문: {q}\n답변: {r}" for q, r in zip(examples["instruction"], examples["response"])]
+        return _tokenizer(prompts, truncation=True, padding="max_length", max_length=512)
     
     tokenized_dataset = dataset.map(tokenize_function, batched=True, remove_columns=dataset.column_names)
     
