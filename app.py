@@ -7,14 +7,14 @@ import torch
 @st.cache_resource
 def load_data():
     df = pd.read_csv("https://huggingface.co/datasets/bitext/Bitext-telco-llm-chatbot-training-dataset/raw/main/bitext-telco-llm-chatbot-training-dataset.csv")
-    st.write(f"전체 데이터셋 크기: {len(df)}")
-    sample_size = min(1000, len(df))
-    return df.sample(n=sample_size, random_state=42)
+    return df
 
 @st.cache_resource
 def prepare_data(df):
-    X = df['input']
-    y = df['intent']
+    # 데이터셋의 열 이름을 출력하여 확인
+    print(df.columns)
+    X = df[df.columns[0]]  # 첫 번째 열을 입력으로 사용
+    y = df[df.columns[1]]  # 두 번째 열을 레이블로 사용
     return train_test_split(X, y, test_size=0.2, random_state=42)
 
 @st.cache_resource
@@ -52,8 +52,6 @@ def train_model(X_train, X_test, y_train, y_test):
 st.title("텔코 고객센터 챗봇")
 
 df = load_data()
-st.write(f"사용된 데이터 샘플 수: {len(df)}")
-
 X_train, X_test, y_train, y_test = prepare_data(df)
 model, tokenizer, intents = train_model(X_train, X_test, y_train, y_test)
 
@@ -66,4 +64,3 @@ if user_input:
     predicted_intent = intents[outputs.logits.argmax().item()]
     
     st.write(f"예측된 의도: {predicted_intent}")
-    # 여기에 의도에 따른 응답 로직을 추가할 수 있습니다.
