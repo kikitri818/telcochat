@@ -6,9 +6,41 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 from sklearn.metrics.pairwise import cosine_similarity
 
-# (이전 코드는 동일하게 유지)
+# 데이터 로드 및 전처리
+@st.cache_data
+def load_data():
+    dataset = load_dataset("bitext/Bitext-telco-llm-chatbot-training-dataset", split="train")
+    df = pd.DataFrame(dataset)
+    if len(df) > 1000:  # 데이터가 1000개 이상이면 샘플링
+        return df.sample(n=1000, random_state=42)
+    return df
 
-# RAG 함수 수정
+# Sentence Transformer 모델 로드
+@st.cache_resource
+def load_sentence_transformer():
+    return SentenceTransformer('sentence-transformers/distiluse-base-multilingual-cased-v2')
+
+# KoGPT 모델 및 토크나이저 로드
+@st.cache_resource
+def load_kogpt_model():
+    model_name = "kykim/gpt3-kor-small_based_on_gpt2"
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name)
+    return tokenizer, model
+
+# 데이터 및 모델 로드
+df = load_data()
+sentence_model = load_sentence_transformer()
+tokenizer, model = load_kogpt_model()
+
+# 임베딩 생성
+@st.cache_data
+def create_embeddings(_df, _model):
+    return _model.encode(_df['instruction'].tolist())
+
+embeddings = create_embeddings(df, sentence_model)
+
+# RAG 함수
 def rag(query, top_k=3):
     try:
         query_embedding = sentence_model.encode([query])
@@ -25,18 +57,19 @@ def rag(query, top_k=3):
 
 위 정보를 바탕으로 고객 질문에 대해 한국어로 자연스럽게 답변해주세요. 
 마치 고객 상담원이 친절하게 대화하듯이 답변을 작성해주세요. 
-불필요한 정보는 제외하고 핵심만 간결하게 말씀해 주세요:
-
-답변: """
+불필요한 정보는 제외하고 핵심만 간결하게 말씀해 주세요:"""
         
         inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
         with torch.no_grad():
-            outputs = model.generate(**inputs, max_new_tokens=200, do_sample=True, temperature=0.7, top_p=0.95)
+            outputs = model.generate(**inputs, max_new_tokens=200, do_sample=True, temperature=0.7, top_p=0.95, pad_token_id=tokenizer.eos_token_id)
         
         response = tokenizer.decode(outputs[0], skip_special_tokens=True)
         
         # 프롬프트 부분 제거
-        answer = response.split("답변:")[-1].strip()
+        answer = response.split(prompt)[-1].strip()
+        
+        if not answer:
+            answer = "죄송합니다. 현재 답변을 생성할 수 없습니다. 다시 한 번 질문해 주시겠어요?"
         
         return answer
     except Exception as e:
