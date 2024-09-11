@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datasets import load_dataset
+from datasets import load_dataset, Dataset
 from sentence_transformers import SentenceTransformer
 from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments
 import torch
