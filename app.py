@@ -74,7 +74,6 @@ def preprocess_function(examples, tokenizer):
     return model_inputs
 
 # Fine-tuning 함수
-@st.cache_resource
 def fine_tune_model(_df, tokenizer, model):
     train_dataset = _df.to_dict(orient="list")
     train_dataset = preprocess_function(train_dataset, tokenizer)
@@ -133,6 +132,9 @@ if tokenizer is None or seq2seq_model is None:
     st.error("모델 로딩에 실패했습니다. 앱을 다시 시작해주세요.")
 else:
     if 'model_fine_tuned' not in st.session_state:
+        st.session_state.model_fine_tuned = False
+
+    if not st.session_state.model_fine_tuned:
         with st.spinner('모델을 Fine-tuning 중입니다. 잠시만 기다려주세요...'):
             seq2seq_model = fine_tune_model(df, tokenizer, seq2seq_model)
         st.session_state.model_fine_tuned = True
