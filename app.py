@@ -1,20 +1,25 @@
 import streamlit as st
 import pandas as pd
+from datasets import load_dataset
 from sentence_transformers import SentenceTransformer
 from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments
 import torch
 from sklearn.metrics.pairwise import cosine_similarity
-from datasets import Dataset
 
 # 데이터 로드 및 전처리
 @st.cache_data
 def load_data():
-    df = pd.read_csv("https://huggingface.co/datasets/bitext/Bitext-telco-llm-chatbot-training-dataset/raw/main/bitext-telco-llm-chatbot-training-dataset.csv")
+    dataset = load_dataset("bitext/Bitext-telco-llm-chatbot-training-dataset", split="train")
+    df = pd.DataFrame(dataset)
     if len(df) > 100:  # 데이터가 100개 이상이면 샘플링
         return df.sample(n=100, random_state=42)
     return df
 
 df = load_data()
+
+# 데이터프레임 구조 확인
+st.write("데이터프레임 열:", df.columns)
+st.write("데이터프레임 샘플:", df.head())
 
 # Sentence Transformer 모델 로드
 @st.cache_resource
@@ -42,7 +47,7 @@ tokenizer, model = load_kogpt_model()
 
 # Fine-tuning
 def fine_tune_model(_df, _tokenizer, _model):
-    dataset = Dataset.from_pandas(_df)
+    dataset = load_dataset("bitext/Bitext-telco-llm-chatbot-training-dataset", split="train")
     
     def tokenize_function(examples):
         return _tokenizer(examples["instruction"] + " " + examples["response"], truncation=True, padding="max_length", max_length=512)
