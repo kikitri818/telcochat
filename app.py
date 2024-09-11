@@ -22,8 +22,13 @@ def load_embedding_model():
 @st.cache_resource
 def load_seq2seq_model():
     model_name = "google/mt5-small"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+    except Exception as e:
+        st.error(f"모델 로딩 중 오류 발생: {e}")
+        tokenizer = None
+        model = None
     return tokenizer, model
 
 # 번역기 초기화
@@ -67,8 +72,9 @@ def preprocess_function(examples, tokenizer):
     return model_inputs
 
 # Fine-tuning 함수
-def fine_tune_model(df, tokenizer, model):
-    train_dataset = df.to_dict(orient="list")
+@st.cache_resource
+def fine_tune_model(_df, tokenizer, model):
+    train_dataset = _df.to_dict(orient="list")
     train_dataset = preprocess_function(train_dataset, tokenizer)
     
     training_args = Seq2SeqTrainingArguments(
@@ -118,14 +124,17 @@ df = load_data()
 embedding_model = load_embedding_model()
 tokenizer, seq2seq_model = load_seq2seq_model()
 
-if 'model_fine_tuned' not in st.session_state:
-    with st.spinner('모델을 Fine-tuning 중입니다. 잠시만 기다려주세요...'):
-        seq2seq_model = fine_tune_model(df, tokenizer, seq2seq_model)
-    st.session_state.model_fine_tuned = True
-    st.success('Fine-tuning이 완료되었습니다!')
+if tokenizer is None or seq2seq_model is None:
+    st.error("모델 로딩에 실패했습니다. 앱을 다시 시작해주세요.")
+else:
+    if 'model_fine_tuned' not in st.session_state:
+        with st.spinner('모델을 Fine-tuning 중입니다. 잠시만 기다려주세요...'):
+            seq2seq_model = fine_tune_model(df, tokenizer, seq2seq_model)
+        st.session_state.model_fine_tuned = True
+        st.success('Fine-tuning이 완료되었습니다!')
 
-query = st.text_input("질문을 입력하세요:")
+    query = st.text_input("질문을 입력하세요:")
 
-if query:
-    answer = rag(query, df, embedding_model, seq2seq_model, tokenizer)
-    st.write("답변:", answer)
+    if query:
+        answer = rag(query, df, embedding_model, seq2seq_model, tokenizer)
+        st.write("답변:", answer)
