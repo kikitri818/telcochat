@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datasets import load_dataset, Dataset
 from sentence_transformers import SentenceTransformer
-from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments, DataCollatorForLanguageModeling
+from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments
 import torch
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -47,12 +47,10 @@ def fine_tune_model(_df, _tokenizer, _model):
     dataset = Dataset.from_pandas(_df)
     
     def tokenize_function(examples):
-        prompts = [f"질문: {q}\n답변: {r}" for q, r in zip(examples["instruction"], examples["response"])]
-        return _tokenizer(prompts, truncation=True, padding=True, max_length=512)
+        texts = [f"질문: {q} 답변: {r}" for q, r in zip(examples["instruction"], examples["response"])]
+        return _tokenizer(texts, truncation=True, padding="max_length", max_length=512)
     
     tokenized_dataset = dataset.map(tokenize_function, batched=True, remove_columns=dataset.column_names)
-    
-    data_collator = DataCollatorForLanguageModeling(tokenizer=_tokenizer, mlm=False)
     
     training_args = TrainingArguments(
         output_dir="./results",
@@ -60,13 +58,13 @@ def fine_tune_model(_df, _tokenizer, _model):
         per_device_train_batch_size=4,
         save_steps=10_000,
         save_total_limit=2,
+        learning_rate=5e-5,
     )
     
     trainer = Trainer(
         model=_model,
         args=training_args,
         train_dataset=tokenized_dataset,
-        data_collator=data_collator,
     )
     
     trainer.train()
@@ -83,13 +81,7 @@ def rag(query, top_k=3):
         
         context = "\n".join(df.iloc[top_indices]['response'].tolist())
         
-        prompt = f"""다음은 고객 질문에 대한 관련 정보입니다:
-
-{context}
-
-고객 질문: {query}
-
-위 정보를 바탕으로 고객 질문에 대해 간결하고 정확하게 답변해주세요. 불필요한 정보는 제외하고 핵심만 말씀해 주세요:"""
+        prompt = f"질문: {query}\n관련 정보: {context}\n답변:"
         
         inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
         with torch.no_grad():
@@ -98,7 +90,7 @@ def rag(query, top_k=3):
         response = tokenizer.decode(outputs[0], skip_special_tokens=True)
         
         # 프롬프트 부분 제거
-        answer = response.split("핵심만 말씀해 주세요:")[-1].strip()
+        answer = response.split("답변:")[-1].strip()
         
         return answer
     except Exception as e:
@@ -112,4 +104,3 @@ user_input = st.text_input("질문을 입력하세요:")
 if user_input:
     answer = rag(user_input)
     st.write("답변:", answer)
-    
