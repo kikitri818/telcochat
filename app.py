@@ -1,26 +1,35 @@
 import streamlit as st
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, Trainer, TrainingArguments
+from transformers import AutoTokenizer, AutoModelForQuestionAnswering, Trainer, TrainingArguments
+from datasets import Dataset
 import torch
 
 @st.cache_resource
 def load_data():
     df = pd.read_csv("https://huggingface.co/datasets/bitext/Bitext-telco-llm-chatbot-training-dataset/raw/main/bitext-telco-llm-chatbot-training-dataset.csv")
-    return df.sample(n=100, random_state=42)
+    return df.sample(n=1000, random_state=42)  # 1000개의 샘플을 사용
 
 @st.cache_resource
-def train_model(df):
-    X = df['input']
-    y = df['intent']
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+def prepare_data(df):
+    dataset = Dataset.from_pandas(df)
+    dataset = dataset.map(lambda x: {
+        "question": x["input"],
+        "context": x["response"],
+        "answer": x["intent"]
+    })
+    return dataset.train_test_split(test_size=0.2, seed=42)
 
-    model_name = "distilbert-base-uncased"
+@st.cache_resource
+def train_model(dataset):
+    model_name = "distilbert-base-uncased-distilled-squad"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=len(y.unique()))
+    model = AutoModelForQuestionAnswering.from_pretrained(model_name)
 
-    train_encodings = tokenizer(X_train.tolist(), truncation=True, padding=True)
-    test_encodings = tokenizer(X_test.tolist(), truncation=True, padding=True)
+    def tokenize_function(examples):
+        return tokenizer(examples["question"], examples["context"], truncation=True, padding="max_length", max_length=512)
+
+    tokenized_datasets = dataset.map(tokenize_function, batched=True)
 
     training_args = TrainingArguments(
         output_dir="./results",
@@ -35,26 +44,31 @@ def train_model(df):
     trainer = Trainer(
         model=model,
         args=training_args,
-        train_dataset=train_encodings,
-        eval_dataset=test_encodings,
+        train_dataset=tokenized_datasets["train"],
+        eval_dataset=tokenized_datasets["test"],
     )
 
     trainer.train()
-    return model, tokenizer, y.unique()
+    return model, tokenizer
 
 st.title("텔코 고객센터 챗봇")
 
 df = load_data()
-model, tokenizer, intents = train_model(df)
+st.write(f"로드된 데이터 샘플 수: {len(df)}")
+
+dataset = prepare_data(df)
+model, tokenizer = train_model(dataset)
 
 user_input = st.text_input("질문을 입력하세요:")
 
 if user_input:
-    input_encoding = tokenizer(user_input, truncation=True, padding=True, return_tensors="pt")
+    context = "이 챗봇은 텔코 회사의 고객 서비스를 지원합니다."  # 실제 상황에 맞는 컨텍스트로 대체해야 합니다
+    inputs = tokenizer(user_input, context, return_tensors="pt")
     with torch.no_grad():
-        output = model(**input_encoding)
-    predicted_intent = intents[output.logits.argmax().item()]
+        outputs = model(**inputs)
     
-    st.write(f"예측된 의도: {predicted_intent}")
-    # 여기에 의도에 따른 응답 로직을 추가할 수 있습니다.
+    answer_start = torch.argmax(outputs.start_logits)
+    answer_end = torch.argmax(outputs.end_logits) + 1
+    answer = tokenizer.decode(inputs["input_ids"][0][answer_start:answer_end])
     
+    st.write(f"답변: {answer}")
