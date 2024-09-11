@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
-from datasets import load_dataset, Dataset
+from datasets import load_dataset
 from sentence_transformers import SentenceTransformer
-from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments
+from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -40,37 +40,6 @@ def load_kogpt_model():
     return tokenizer, model
 
 tokenizer, model = load_kogpt_model()
-
-# Fine-tuning
-@st.cache_resource
-def fine_tune_model(_df, _tokenizer, _model):
-    dataset = Dataset.from_pandas(_df)
-    
-    def tokenize_function(examples):
-        texts = [f"질문: {q} 답변: {r}" for q, r in zip(examples["instruction"], examples["response"])]
-        return _tokenizer(texts, truncation=True, padding="max_length", max_length=512)
-    
-    tokenized_dataset = dataset.map(tokenize_function, batched=True, remove_columns=dataset.column_names)
-    
-    training_args = TrainingArguments(
-        output_dir="./results",
-        num_train_epochs=1,
-        per_device_train_batch_size=4,
-        save_steps=10_000,
-        save_total_limit=2,
-        learning_rate=5e-5,
-    )
-    
-    trainer = Trainer(
-        model=_model,
-        args=training_args,
-        train_dataset=tokenized_dataset,
-    )
-    
-    trainer.train()
-    return _model
-
-model = fine_tune_model(df, tokenizer, model)
 
 # RAG 함수
 def rag(query, top_k=3):
