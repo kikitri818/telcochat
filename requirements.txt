@@ -1,7 +1,5 @@
 streamlit
 pandas
-datasets
 sentence-transformers
-transformers
-torch
 scikit-learn
+datasets
