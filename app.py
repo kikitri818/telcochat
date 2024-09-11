@@ -80,7 +80,13 @@ def rag(query, top_k=3):
         
         context = "\n".join(df.iloc[top_indices]['response'].tolist())
         
-        prompt = f"질문: {query}\n답변:"
+        prompt = f"""다음은 고객 질문에 대한 관련 정보입니다:
+
+{context}
+
+고객 질문: {query}
+
+위 정보를 바탕으로 고객 질문에 대해 간결하고 정확하게 답변해주세요. 불필요한 정보는 제외하고 핵심만 말씀해 주세요:"""
         
         inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
         with torch.no_grad():
@@ -88,13 +94,8 @@ def rag(query, top_k=3):
         
         response = tokenizer.decode(outputs[0], skip_special_tokens=True)
         
-        # 답변 부분만 추출
-        answer_start = response.find("답변:") + 3
-        answer = response[answer_start:].strip()
-        
-        # 답변이 너무 길면 첫 문장만 반환
-        if len(answer) > 100:
-            answer = answer.split('.')[0] + '.'
+        # 프롬프트 부분 제거
+        answer = response.split("핵심만 말씀해 주세요:")[-1].strip()
         
         return answer
     except Exception as e:
