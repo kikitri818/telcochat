@@ -6,12 +6,13 @@ from sklearn.metrics.pairwise import cosine_similarity
 import re
 from googletrans import Translator
 from transformers import MBart50TokenizerFast, MBartForConditionalGeneration
+import time
 
 # 데이터 로드 및 전처리
 @st.cache_data
 def load_data():
     df = pd.read_csv("hf://datasets/bitext/Bitext-telco-llm-chatbot-training-dataset/bitext-telco-llm-chatbot-training-dataset.csv")
-    return df
+    return df.head(1000)  # 데이터 크기 제한
 
 # 임베딩 모델 로드
 @st.cache_resource
@@ -64,21 +65,39 @@ def translate_to_korean(text):
         return text
 
 # RAG 함수
+@st.cache_data
+def compute_embeddings(df, embedding_model):
+    return df['instruction'].apply(lambda x: embedding_model.encode(x))
+
 def rag(query, df, embedding_model, seq2seq_model, tokenizer):
-    query_embedding = embedding_model.encode([query])
-    df['embedding'] = df['instruction'].apply(lambda x: embedding_model.encode(x))
-    df['similarity'] = df['embedding'].apply(lambda x: cosine_similarity([x], query_embedding)[0][0])
-    most_similar = df.nlargest(1, 'similarity')
-    
-    context = most_similar['instruction'].values[0]
-    input_text = f"질문: {context}\n답변:"
-    
-    inputs = tokenizer(input_text, return_tensors="pt", max_length=512, truncation=True)
-    outputs = seq2seq_model.generate(**inputs, max_length=150, num_return_sequences=1, no_repeat_ngram_size=2, forced_bos_token_id=tokenizer.lang_code_to_id["ko_KR"])
-    answer = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    
-    answer = clean_text(answer)
-    return answer
+    try:
+        start_time = time.time()
+        query_embedding = embedding_model.encode([query])
+        
+        if 'embedding' not in df.columns:
+            df['embedding'] = compute_embeddings(df, embedding_model)
+        
+        df['similarity'] = df['embedding'].apply(lambda x: cosine_similarity([x], query_embedding)[0][0])
+        most_similar = df.nlargest(1, 'similarity')
+        
+        context = most_similar['instruction'].values[0]
+        input_text = f"질문: {context}\n답변:"
+        
+        inputs = tokenizer(input_text, return_tensors="pt", max_length=512, truncation=True)
+        outputs = seq2seq_model.generate(**inputs, max_length=150, num_return_sequences=1, no_repeat_ngram_size=2, forced_bos_token_id=tokenizer.lang_code_to_id["ko_KR"])
+        answer = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        
+        answer = clean_text(answer)
+        
+        end_time = time.time()
+        st.info(f"처리 시간: {end_time - start_time:.2f}초")
+        
+        return answer
+    except Exception as e:
+        st.error(f"RAG 처리 중 오류 발생: {str(e)}")
+        import traceback
+        st.error(f"상세 오류: {traceback.format_exc()}")
+        return "죄송합니다. 답변을 생성하는 중에 오류가 발생했습니다."
 
 # Streamlit 앱
 st.title("통신사 고객센터 챗봇")
@@ -93,5 +112,6 @@ else:
     query = st.text_input("질문을 입력하세요:")
 
     if query:
-        answer = rag(query, df, embedding_model, seq2seq_model, tokenizer)
+        with st.spinner('답변을 생성 중입니다...'):
+            answer = rag(query, df, embedding_model, seq2seq_model, tokenizer)
         st.write("답변:", answer)
