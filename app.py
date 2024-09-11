@@ -1,26 +1,20 @@
 import streamlit as st
-import pandas as pd
-import requests
-from io import StringIO
+from datasets import load_dataset
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, Trainer, TrainingArguments
 import torch
+import pandas as pd
 
 @st.cache_resource
 def load_data():
-    url = "https://huggingface.co/datasets/bitext/Bitext-telco-llm-chatbot-training-dataset/raw/main/bitext-telco-llm-chatbot-training-dataset.csv"
-    response = requests.get(url)
-    if response.status_code == 200:
-        df = pd.read_csv(StringIO(response.text))
-        st.write("데이터셋 구조:")
-        st.write(df.head())
-        st.write("열 이름:", df.columns.tolist())
-        return df
-    else:
-        st.error("데이터를 불러오는 데 실패했습니다.")
-        return None
+    dataset = load_dataset("bitext/Bitext-telco-llm-chatbot-training-dataset")
+    df = pd.DataFrame(dataset['train'])
+    st.write("데이터셋 구조:")
+    st.write(df.head())
+    st.write("열 이름:", df.columns.tolist())
+    return df
 
 @st.cache_resource
 def prepare_data_and_index(df):
@@ -95,3 +89,4 @@ if df is not None and 'instruction' in df.columns and 'response' in df.columns:
         st.write(f"챗봇 응답: {response}")
 else:
     st.error("올바른 데이터를 불러오지 못했습니다. 데이터셋의 구조를 확인해주세요.")
+    
